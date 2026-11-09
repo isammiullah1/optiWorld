@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "OptiWorld",
+    "slug": "optiworld",
+    "scheme": "optiworld",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.optiworld.app"
+    }
+  }
+}

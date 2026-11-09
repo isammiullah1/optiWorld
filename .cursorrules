@@ -1,0 +1,761 @@
+# ============================================================
+# OptiWorld — Cursor Rules File
+# B2B SaaS Platform for the Optical Industry
+# SRS Version: 1.2 | Last updated: September 2026
+# ============================================================
+# This file gives Cursor AI the full context of the OptiWorld
+# project. Read every section before generating any code.
+# ============================================================
+
+
+# ── PROJECT OVERVIEW ─────────────────────────────────────────
+# OptiWorld is a B2B SaaS platform connecting three types of
+# organisations in the optical retail industry:
+#   - Retailers (optical shops): billing, inventory, credit
+#   - Wholesalers (lens/frame suppliers): catalog, orders, chat
+#   - Laboratories (lens cutting): job tracking, prescriptions
+#
+# Each org type has independent value AND cross-org connectivity.
+# A Super Admin portal manages the platform.
+
+
+# ── MONOREPO STRUCTURE ───────────────────────────────────────
+# /optiworld
+#   /apps
+#     /web          Next.js 14 (App Router) — main web app + PWA
+#     /mobile       React Native + Expo SDK 51 — Android first
+#     /admin        Next.js 14 — Super Admin portal (separate app)
+#   /packages
+#     /api          Express.js + TypeScript — REST API server
+#     /db           Prisma ORM — schema, migrations, seed
+#     /shared       Shared TS types, constants, enums, utilities
+#     /ui           Shared React component library
+#   /docs
+#   docker-compose.yml
+#   docker-compose.prod.yml
+#   .env.example
+
+
+# ── TECHNOLOGY STACK ─────────────────────────────────────────
+
+## Frontend (Web)
+# Framework:      Next.js 14 with App Router (NOT Pages Router)
+# Language:       TypeScript 5.x (strict mode always)
+# Styling:        Tailwind CSS v3 + shadcn/ui components
+# State:          Zustand for global, TanStack Query for server state
+# Forms:          React Hook Form + Zod validation
+# Charts:         Recharts
+# Icons:          Lucide React (web), Tabler Icons (diagrams only)
+# Realtime:       Socket.io client v4
+# HTTP client:    Axios with interceptors for auth token injection
+# Date handling:  date-fns (NOT moment.js)
+# Table:          TanStack Table v8
+
+## Frontend (Mobile)
+# Framework:      React Native + Expo SDK 51
+# Navigation:     React Navigation v6 (stack + bottom tabs)
+# Styling:        NativeWind (Tailwind for RN) + StyleSheet
+# Offline DB:     WatermelonDB for offline-first POS
+# Connectivity:   @react-native-community/netinfo
+# Secure storage: expo-secure-store (tokens, sensitive data)
+# Biometrics:     expo-local-authentication
+# State:          Same as web — Zustand + TanStack Query
+# Realtime:       Socket.io client (same as web)
+
+## Backend (API)
+# Runtime:        Node.js 20 LTS
+# Framework:      Express.js + TypeScript
+# ORM:            Prisma 5.x with PostgreSQL
+# Cache/Sessions: Redis (ioredis)
+# Auth:           JWT (jsonwebtoken) for API + NextAuth.js for web
+# Realtime:       Socket.io v4 with Redis adapter
+# Validation:     Zod (always validate request body and params)
+# File uploads:   Multer + AWS S3 / Cloudflare R2
+# Email:          SendGrid (@sendgrid/mail)
+# WhatsApp:       WhatsApp Business API (official)
+# Excel export:   exceljs
+# Password:       bcrypt (rounds: 12)
+# Logging:        Winston
+# Testing:        Jest + Supertest (API), Playwright (E2E)
+
+## Database
+# Primary:        PostgreSQL 15
+# Cache:          Redis 7
+# ORM:            Prisma with connection pooling via PgBouncer in prod
+# Migrations:     prisma migrate (never edit migrations manually)
+
+## DevOps
+# Package manager: pnpm workspaces (NEVER npm or yarn)
+# Container:       Docker + Docker Compose
+# CI/CD:           GitHub Actions
+# Hosting:         TBD (Railway / Render / AWS ECS)
+# Process manager: PM2 (production)
+
+
+# ── DESIGN SYSTEM ────────────────────────────────────────────
+# ALL UI must follow this design system exactly.
+# Do not invent colours, spacing, or component patterns.
+
+## Colour palette (CSS variables defined in globals.css)
+# --ow-navy:       #003153  (Prussian Blue — sidebar, primary dark bg)
+# --ow-navy-light: #01486C  (sidebar hover, between Prussian and Peacock)
+# --ow-blue:       #016795  (Peacock Blue — primary action, active states)
+# --ow-blue-soft:  #E5F2F7  (Peacock tints, chip backgrounds)
+# --ow-teal:       #367588  (Teal Blue — success, confirmed, ready states)
+# --ow-teal-soft:  #E7F3F4  (Teal Blue tints)
+# --ow-amber:      #D97C10  (warnings, offline, pending)
+# --ow-amber-soft: #FEF3E2  (amber tints)
+# --ow-red:        #C93535  (errors, overdue, critical)
+# --ow-red-soft:   #FDEAEA  (red tints)
+# --ow-purp:       #6D28D9  (future/AI features only)
+# --ow-purp-soft:  #F5F0FF  (purple tints)
+# --ow-ink:        #1A1E2E  (primary text)
+# --ow-ink2:       #4A5068  (secondary text)
+# --ow-ink3:       #8892A4  (muted/placeholder text)
+# --ow-line:       #E4E8F0  (borders, dividers)
+# --ow-bg:         #F5F7FB  (page background)
+# --ow-white:      #FFFFFF  (cards, panels)
+
+## Status colour mapping (use these consistently across all modules)
+# PENDING / WAITING:    amber (#D97C10)
+# CONFIRMED / ACTIVE:   blue (#016795)
+# READY / COMPLETED:    teal (#367588)
+# DISPATCHED:           teal (#367588)
+# DELIVERED:            teal, muted
+# OVERDUE / CRITICAL:   red (#C93535)
+# OFFLINE:              amber (#D97C10)
+# LOCKED:               gray (#8892A4)
+# AI / FUTURE FEATURE:  purple (#6D28D9)
+
+## Typography
+# Font family:    Inter (web), System font stack (mobile)
+# Scale:
+#   xs:    11px  (badges, timestamps, labels)
+#   sm:    12px  (table cells, secondary text)
+#   base:  13px  (body, default)
+#   md:    14px  (subheadings)
+#   lg:    16px  (section titles)
+#   xl:    18px  (page titles)
+#   2xl:   22px+ (dashboard stat numbers)
+# Weight: 400 (normal), 500 (medium/labels), 600 (bold/headings)
+
+## Spacing & Layout
+# Use Tailwind spacing scale consistently
+# Card padding:        p-4 (16px) on desktop, p-3 (12px) on mobile
+# Content area:        px-5 py-4 (desktop), px-3 py-3 (mobile)
+# Sidebar width:       200px (desktop), hidden on mobile
+# Card border radius:  rounded-xl (12px) for cards, rounded-lg (8px) for inputs
+# Gap between cards:   gap-3 or gap-4
+
+## Sidebar (all modules)
+# Background: --ow-navy (#003153)
+# Logo section at top with org type label
+# Navigation sections with section labels (uppercase, 9px, muted)
+# Item: icon + label, active state = blue tinted bg + white text
+# Badges: blue pill for counts
+# User chip at bottom: avatar (initials) + org name + role
+# Width: 200px, not collapsible on desktop (collapses to bottom tab bar on mobile)
+
+## Component conventions
+# Buttons:
+#   Primary:   bg-[#016795] text-white rounded-lg px-4 py-2
+#   Secondary: bg-white border border-[#E4E8F0] text-[#4A5068] rounded-lg
+#   Danger:    bg-[#C93535] text-white rounded-lg
+#   Ghost:     text-[#016795] hover:bg-[#E5F2F7]
+#
+# Badges/pills: rounded-full, 10px font, coloured bg + matching text colour
+# Tables: border-collapse, th = 10px uppercase muted, td = 12px, hover row tint
+# Form inputs: border border-[#E4E8F0] rounded-lg px-3 py-2, focus:border-[#016795]
+# Cards: bg-white rounded-xl border border-[#E4E8F0] shadow-none (NO drop shadows)
+# Modals/drawers: slide from right on desktop, sheet from bottom on mobile
+# Toasts: bottom-center, 2.5s auto-dismiss
+# Loading: skeleton loaders (not spinners) for data tables and cards
+# Empty states: icon + heading + description + optional CTA (no illustrations)
+
+
+# ── ORGANISATION TYPES AND ROLES ─────────────────────────────
+# ALWAYS check orgType and role before rendering any UI or calling any API.
+
+## Retailer
+# Roles: OWNER (full access) | STAFF (no ledger/profit visibility)
+# Routes: /retailer/*
+# Layout: RetailerLayout with sidebar
+
+## Wholesaler
+# Roles: ADMIN | ORDER_HANDLER
+# Routes: /wholesaler/*
+# Layout: WholesalerLayout with sidebar
+# NOTE: No Full Suite / Connectivity Only split — single unified system
+
+## Laboratory
+# Roles: ADMIN | TECHNICIAN
+# Routes: /laboratory/*
+# Layout: LaboratoryLayout with sidebar
+
+## Super Admin
+# Roles: SUPER_ADMIN
+# Routes: /admin/* (SEPARATE Next.js app in apps/admin)
+# CANNOT access any retailer/wholesaler/lab routes
+# Separate login at /admin/login
+
+## Route protection pattern:
+# Every layout.tsx must call validateSession() and check orgType
+# Middleware.ts at app root handles redirect for unauthenticated users
+# API middleware chain: requireAuth → requireOrgType → requireRole → handler
+
+
+# ── CRITICAL BUSINESS RULES ──────────────────────────────────
+# These are NON-NEGOTIABLE. Never generate code that violates them.
+
+## 1. PRICE PROTECTION MODEL (most important)
+# RULE: A retailer can ONLY see a wholesaler's catalog after the
+#       wholesaler has explicitly approved the connection.
+# RULE: Catalog visibility is per-retailer and set by the wholesaler:
+#       - FULL: retailer sees all products + prices
+#       - PRICES_HIDDEN: retailer sees products, all prices = null (show "Price on request")
+#       - CATALOG_HIDDEN: retailer cannot see catalog at all
+# RULE: There is NO universal product search across wholesalers
+# RULE: There is NO cross-wholesaler price comparison feature — EVER
+# RULE: Price protection is enforced at the DATABASE/API level, not just UI
+# IMPLEMENTATION: Every catalog endpoint must check RetailerConnection.status=APPROVED
+#                 and apply visibility mode transformation before returning data
+
+## 2. WHOLESALER FINANCIAL PRIVACY
+# RULE: OptiWorld NEVER stores, aggregates, or exposes wholesaler revenue,
+#       profit, total earnings, or cumulative sales data
+# RULE: Order values are per-order records only — never aggregated
+# RULE: The wholesaler entity has NO revenue fields in the database schema
+# RULE: Admin portal CANNOT show wholesaler financial summaries
+# RULE: Financial settlement between wholesaler and retailer happens OUTSIDE the app
+# IMPLEMENTATION: No revenue/profit fields on Organisation or any wholesaler table.
+#                 Wholesaler reports show ORDER ACTIVITY only (counts, statuses).
+
+## 3. ORDER LOCK AFTER CONFIRMATION
+# RULE: Once a wholesaler confirms an order, it is permanently locked
+# RULE: After lock: retailer CANNOT edit, cancel, or modify the order
+# RULE: After lock: wholesaler CANNOT modify items or quantities
+# RULE: The only actions after lock: wholesaler updates status (dispatched/delivered)
+# IMPLEMENTATION: Order.lockedAt timestamp + API middleware that rejects
+#                 any modification attempt with 409 ORDER_LOCKED error
+
+## 4. ORDER-SCOPED CHAT ISOLATION
+# RULE: Chat messages are ONLY visible to the retailer and wholesaler of THAT order
+# RULE: No message can be seen by any third party, admin, or other org
+# RULE: Chat is order-scoped — there is NO general messaging inbox in v1
+# IMPLEMENTATION: Socket.io rooms keyed by orderId, auth check on join
+
+## 5. DATA ISOLATION BETWEEN ORGS
+# RULE: Retailer A cannot see Retailer B's customers, invoices, or inventory
+# RULE: Wholesaler A cannot see Wholesaler B's catalog, orders, or connections
+# RULE: Lab A cannot see Lab B's jobs or clients
+# IMPLEMENTATION: Every query MUST include orgId filter matching the authenticated user's org
+
+## 6. OFFLINE-FIRST POS (mandatory requirement)
+# RULE: Retailer POS billing MUST work with zero internet connection
+# RULE: Invoices created offline must sync when connectivity returns
+# RULE: No data loss under any circumstances
+# IMPLEMENTATION: WatermelonDB on mobile, IndexedDB + service worker on PWA,
+#                 optimistic local operations, background sync on reconnect
+
+## 7. ASSISTED REPLY CHIPS (v1 = static, v2 = AI)
+# RULE: In v1, suggested reply chips are STATIC strings mapped to conversation state
+# RULE: Chips are shown to WHOLESALER ONLY (not visible to retailer)
+# RULE: Chips NEVER auto-send — wholesaler always taps to insert, then sends manually
+# RULE: The "Confirm Order" action is a SEPARATE button, never a chip
+# RULE: The AI smart reply chip (purple) is DISABLED in v1 — show tooltip "Planned for Version 2"
+# IMPLEMENTATION: GET /api/orders/:id/chat/suggested-replies returns chip set
+#                 based on order status + last message analysis (keyword-based in v1)
+
+
+# ── FILE NAMING CONVENTIONS ──────────────────────────────────
+
+## Next.js (apps/web and apps/admin)
+# Pages:       app/(module)/feature/page.tsx
+# Layouts:     app/(module)/layout.tsx
+# Loading:     app/(module)/feature/loading.tsx
+# Error:       app/(module)/feature/error.tsx
+# Components:  components/[module]/ComponentName.tsx (PascalCase)
+# Hooks:       hooks/use-feature-name.ts (kebab-case)
+# Utils:       lib/utils/feature-name.ts
+# Types:       types/module-name.ts
+# API routes:  app/api/[resource]/route.ts (Next.js API routes, minimal — prefer Express API)
+# Constants:   lib/constants.ts
+
+## Express API (packages/api)
+# Routes:      src/routes/resource.routes.ts
+# Controllers: src/controllers/resource.controller.ts
+# Services:    src/services/resource.service.ts
+# Middleware:  src/middleware/name.middleware.ts
+# Utils:       src/utils/name.ts
+# Types:       src/types/resource.types.ts
+# Tests:       src/tests/resource.test.ts
+
+## React Native (apps/mobile)
+# Screens:     src/screens/[module]/ScreenName.tsx (PascalCase)
+# Components:  src/components/[module]/ComponentName.tsx
+# Navigation:  src/navigation/NavigatorName.tsx
+# Hooks:       src/hooks/useFeatureName.ts (camelCase)
+# Services:    src/services/service-name.ts
+# Store:       src/store/sliceName.store.ts
+
+## Shared packages
+# Types:       packages/shared/src/types/index.ts (barrel exports)
+# Enums:       packages/shared/src/enums/index.ts
+# Constants:   packages/shared/src/constants/index.ts
+# Utils:       packages/shared/src/utils/index.ts
+
+
+# ── TYPESCRIPT RULES ─────────────────────────────────────────
+# ALWAYS use strict TypeScript. Never use `any`.
+
+# Use `unknown` instead of `any` for external data
+# Validate with Zod before casting external data to typed interfaces
+# All API request/response types must be defined in packages/shared/src/types/
+# Use Prisma-generated types for database models (import from @prisma/client)
+# Extend Prisma types with computed fields using intersection types
+# Use `satisfies` operator for config objects
+# All async functions must have proper return type annotations
+# Use discriminated unions for state that has multiple shapes
+# Use `const` assertions for static config objects and arrays
+# Never use `!` non-null assertion — handle nulls explicitly
+
+## Shared type naming conventions
+# API request:   CreateInvoiceRequest, UpdateOrderRequest
+# API response:  InvoiceResponse, OrderListResponse
+# DB model:      Invoice, Order, Organisation (match Prisma model names)
+# Enums:         OrgType, UserRole, OrderStatus, VisibilityMode (PascalCase)
+# Props:         InvoiceCardProps, OrderChatProps (ComponentName + Props)
+
+## Zod schema conventions
+# Define schemas alongside types:
+#   export const CreateInvoiceSchema = z.object({ ... })
+#   export type CreateInvoiceRequest = z.infer<typeof CreateInvoiceSchema>
+# Always use .parse() not .safeParse() in controllers (let error boundary handle)
+# Use .safeParse() in forms for inline validation
+
+
+# ── API DESIGN CONVENTIONS ───────────────────────────────────
+
+## REST conventions
+# Base URL:    /api/v1/
+# Resources:   plural nouns (/invoices, /orders, /customers)
+# Nested:      /api/v1/retailers/:retailerId/customers (for cross-org resources)
+# Auth:        Bearer token in Authorization header
+# Pagination:  ?page=1&limit=25, response includes { data, total, page, limit }
+# Filtering:   ?status=PENDING&orgId=xxx (query params)
+# Sorting:     ?sortBy=createdAt&sortDir=desc
+
+## Standard response envelope
+# Success: { success: true, data: T, meta?: PaginationMeta }
+# Error:   { success: false, error: { code: string, message: string, details?: any } }
+
+## Error codes (use these consistently)
+# UNAUTHORIZED        401 — not logged in
+# FORBIDDEN           403 — logged in but no permission
+# NOT_FOUND           404 — resource doesn't exist
+# VALIDATION_ERROR    422 — Zod validation failed
+# ORDER_LOCKED        409 — attempted to modify a confirmed order
+# CONNECTION_REQUIRED 403 — no approved retailer-wholesaler connection
+# PRICES_HIDDEN       403 — retailer has connection but prices not visible
+# CATALOG_HIDDEN      403 — retailer has connection but catalog not visible
+# ALREADY_CONFIRMED   409 — order already confirmed
+# SYNC_CONFLICT       409 — offline sync conflict detected
+# SUBSCRIPTION_INACTIVE 403 — org subscription is not active
+
+## Middleware execution order (always in this order)
+# 1. requireAuth        — validates JWT/session, attaches user to req
+# 2. requireActiveOrg   — checks org.status = ACTIVE
+# 3. requireOrgType     — checks user.orgType matches required type
+# 4. requireRole        — checks user.role matches required role(s)
+# 5. requireConnection  — (wholesaler catalog routes) checks connection exists
+# 6. applyVisibility    — (catalog routes) transforms response per visibility mode
+# 7. handler            — actual controller logic
+
+
+# ── DATABASE CONVENTIONS ─────────────────────────────────────
+
+## Prisma rules
+# Always use transactions for multi-table writes
+# Never use raw SQL unless absolutely necessary (and document why)
+# Use select to limit returned fields — never return password hashes
+# Always filter by orgId in every query — NEVER query without org scope
+# Use Prisma middleware to add soft delete (deletedAt) filtering automatically
+# Indexes: all FK fields, all fields used in WHERE clauses frequently
+# Naming: camelCase fields in Prisma schema (maps to snake_case in DB via @map)
+
+## Critical query patterns
+# ALWAYS include orgId in customer/inventory/invoice queries:
+#   where: { orgId: session.orgId, id: customerId }
+#
+# ALWAYS check connection before catalog query:
+#   const connection = await prisma.retailerConnection.findFirst({
+#     where: { retailerOrgId, wholesalerOrgId, status: 'APPROVED' }
+#   })
+#   if (!connection) throw new ForbiddenError('CONNECTION_REQUIRED')
+#
+# ALWAYS apply visibility before returning catalog:
+#   if (connection.visibilityMode === 'PRICES_HIDDEN') {
+#     products = products.map(p => ({ ...p, listedPrice: null }))
+#   }
+#
+# NEVER aggregate wholesaler revenue:
+#   // ❌ WRONG — never do this
+#   SELECT SUM(totalValue) as revenue FROM orders WHERE wholesalerOrgId = X
+#   // ✅ OK — order activity only
+#   SELECT COUNT(*), status FROM orders WHERE wholesalerOrgId = X GROUP BY status
+
+
+# ── SOCKET.IO CONVENTIONS ────────────────────────────────────
+
+## Room naming
+# Order chat room: `order_${orderId}` (string, not number)
+# Only join a room after verifying user is a participant of that order
+
+## Event naming (camelCase)
+# Client → Server: join_order_chat, send_message, propose_change,
+#                  respond_to_change, confirm_order
+# Server → Client: message_received, change_proposed, change_responded,
+#                  order_confirmed, order_status_updated, error
+
+## Auth on socket
+# Authenticate socket connection using same JWT as HTTP requests
+# Middleware on io.use() — reject unauthenticated connections immediately
+# Re-validate on every sensitive event (join_order_chat, confirm_order)
+
+
+# ── OFFLINE SYNC CONVENTIONS ─────────────────────────────────
+
+## WatermelonDB (mobile) table prefix: local_
+# local_invoices, local_invoice_items, local_customers, local_inventory_batches
+
+## Sync status field on local_invoices
+# PENDING   — created offline, not yet sent to server
+# SYNCING   — currently being sent (optimistic)
+# SYNCED    — successfully synced, has serverId
+# CONFLICT  — server rejected, needs manual resolution
+
+## ID strategy
+# Offline: UUID v4 (localId)
+# After sync: server assigns sequential number (serverId)
+# Always store both on synced records
+
+## Sync trigger
+# NetInfo listener at app root
+# On isConnected = true → call syncPendingInvoices()
+# Show sync progress in offline banner
+# Never block UI during sync — background operation
+
+
+# ── WHATSAPP INTEGRATION ─────────────────────────────────────
+# Use WhatsApp Business API (official Meta API)
+# All WhatsApp calls go through /api/v1/whatsapp/* server-side
+# Never call WhatsApp API directly from frontend
+
+## Message types in v1
+# receipt:          POST /api/v1/whatsapp/send-receipt
+# payment_reminder: POST /api/v1/whatsapp/send-payment-reminder
+# order_status:     POST /api/v1/whatsapp/send-order-update
+# job_status:       POST /api/v1/whatsapp/send-job-update
+
+## Message format rules
+# Always use template messages for automated sends (Meta requirement)
+# Keep messages under 1024 chars
+# Always include business name in message
+# Log all WhatsApp sends to AuditLog table
+# Handle send failures gracefully — invoice is already saved, WhatsApp is bonus
+
+
+# ── COMPONENT PATTERNS ───────────────────────────────────────
+
+## Data fetching pattern (TanStack Query)
+# // ✅ Always use this pattern for server data
+# const { data, isLoading, error } = useQuery({
+#   queryKey: ['invoices', orgId, filters],
+#   queryFn: () => api.getInvoices(filters),
+#   staleTime: 30_000,
+# })
+# // Handle all three states: loading (skeleton), error (error card), data (render)
+
+## Form pattern (React Hook Form + Zod)
+# const form = useForm<CreateInvoiceRequest>({
+#   resolver: zodResolver(CreateInvoiceSchema),
+#   defaultValues: { ... }
+# })
+# Always show inline field errors below the input
+# Show toast on successful submit
+# Disable submit button while submitting (form.formState.isSubmitting)
+
+## Loading states
+# Use skeleton loaders, not spinners, for tables and card grids
+# Use spinner only for button loading states (submit actions)
+# Never show empty state and loading state simultaneously
+
+## Error boundaries
+# Wrap every route in an error boundary
+# Show friendly error card (not raw error message) to user
+# Log error details to console and error tracking service
+# Provide "Try again" retry button
+
+## Mobile-specific patterns
+# All tap targets minimum 44x44pt (Accessibility requirement)
+# Use SafeAreaView and edge-to-edge layout
+# Keyboard-aware scroll on all forms (KeyboardAvoidingView)
+# Pull-to-refresh on all list screens
+# Haptic feedback on important actions (Expo Haptics)
+# Bottom sheets for modals (not full-screen modals on mobile)
+
+
+# ── SECURITY RULES ───────────────────────────────────────────
+# Never log passwords, tokens, or sensitive PII
+# Never return password hashes in any API response
+# Sanitize all user input before database operations (Zod handles this)
+# Use parameterized queries (Prisma handles this — no raw SQL with interpolation)
+# Rate limit all auth endpoints (express-rate-limit: 10 req/15min for login)
+# Set security headers (helmet.js on Express)
+# CORS: only allow known origins (NEXT_PUBLIC_WEB_URL, admin URL)
+# JWT: short-lived access tokens (15min), refresh tokens (30 days) stored in httpOnly cookie
+# Never expose internal error details to client in production
+# Audit log all admin actions (Organisation activate/deactivate, subscription changes)
+
+
+# ── CODE QUALITY RULES ───────────────────────────────────────
+# No `console.log` in production code — use Winston logger
+# No unused imports or variables (ESLint enforces this)
+# No magic numbers — define named constants
+# No inline styles in React components — use Tailwind classes
+# All async/await wrapped in try/catch or using TanStack Query error handling
+# Extract repeated logic into hooks or utils — DRY principle
+# Keep components under 200 lines — extract sub-components if larger
+# Each file has a single responsibility
+# Co-locate tests with the code they test (*.test.ts next to *.ts)
+# All API service functions return typed responses — no implicit any
+
+
+# ── ACCESSIBILITY ─────────────────────────────────────────────
+# All images have alt text
+# All icon-only buttons have aria-label
+# All form inputs have associated label elements
+# Error messages use role="alert" for screen reader announcement
+# Focus management in modals (trap focus inside, return on close)
+# Keyboard navigation works for all interactive elements
+# Color is never the only way to convey information (always pair with text/icon)
+# Minimum contrast ratio 4.5:1 for normal text, 3:1 for large text
+
+
+# ── THINGS CURSOR MUST NEVER DO ──────────────────────────────
+# ❌ Never use `any` TypeScript type
+# ❌ Never query database without orgId scoping
+# ❌ Never return catalog data without checking RetailerConnection
+# ❌ Never return prices if visibilityMode = PRICES_HIDDEN
+# ❌ Never allow order modification after Order.lockedAt is set
+# ❌ Never store or aggregate wholesaler revenue/profit/earnings
+# ❌ Never create a cross-wholesaler search or price comparison endpoint
+# ❌ Never add a general messaging inbox (v1 is order-scoped chat only)
+# ❌ Never auto-send a suggested reply chip (insert to input only)
+# ❌ Never use npm or yarn — always pnpm
+# ❌ Never use Pages Router in Next.js — always App Router
+# ❌ Never use moment.js — use date-fns
+# ❌ Never hardcode colours — use design system variables
+# ❌ Never add drop shadows to cards — design is flat
+# ❌ Never add AI-powered features in v1 (except the disabled chip placeholder)
+# ❌ Never expose internal error stack traces to the client
+# ❌ Never skip input validation with Zod before DB operations
+
+
+# ── THINGS CURSOR SHOULD ALWAYS DO ───────────────────────────
+# ✅ Use TypeScript strict mode everywhere
+# ✅ Validate all API inputs with Zod schemas
+# ✅ Filter every DB query by orgId
+# ✅ Check RetailerConnection before serving catalog data
+# ✅ Apply visibility mode transformation on catalog responses
+# ✅ Enforce order lock in both API middleware and business logic
+# ✅ Use TanStack Query for all server state (caching, refetching)
+# ✅ Use React Hook Form + Zod for all forms
+# ✅ Use skeleton loaders for loading states in tables and grids
+# ✅ Handle offline state gracefully (offline banner + local persistence)
+# ✅ Log all WhatsApp send attempts to AuditLog
+# ✅ Use pnpm for all package management
+# ✅ Use Prisma transactions for multi-table writes
+# ✅ Return standard response envelope from all API endpoints
+# ✅ Use named constants for error codes, status values, and enums
+# ✅ Write tests alongside features (not after)
+
+
+# ── MODULE QUICK REFERENCE ───────────────────────────────────
+
+## Retailer module routes (apps/web/app/(retailer)/*)
+# /retailer/dashboard
+# /retailer/billing/new
+# /retailer/billing/[invoiceId]/receipt
+# /retailer/customers
+# /retailer/customers/[id]
+# /retailer/inventory
+# /retailer/inventory/[batchId]
+# /retailer/ledger
+# /retailer/wholesalers
+# /retailer/wholesalers/[id]/catalog
+# /retailer/orders
+# /retailer/orders/[id]
+# /retailer/laboratories
+# /retailer/lab-jobs
+# /retailer/lab-jobs/[id]
+# /retailer/alerts
+# /retailer/reports/sales
+# /retailer/reports/aging
+# /retailer/reports/inventory
+
+## Wholesaler module routes (apps/web/app/(wholesaler)/*)
+# /wholesaler/dashboard
+# /wholesaler/catalog
+# /wholesaler/retailers
+# /wholesaler/price-control
+# /wholesaler/orders
+# /wholesaler/orders/[id]
+
+## Laboratory module routes (apps/web/app/(laboratory)/*)
+# /laboratory/dashboard
+# /laboratory/jobs
+# /laboratory/inventory
+# /laboratory/clients
+# /laboratory/clients/[id]
+# /laboratory/reports
+
+## Admin portal routes (apps/admin/app/*)
+# /dashboard
+# /organisations
+# /organisations/[id]
+# /organisations/new
+# /subscriptions
+# /users
+# /health
+
+## Auth routes (apps/web/app/(auth)/*)
+# /login
+# /forgot-password
+# /reset-password
+# /setup/type
+# /setup/details
+# /setup/account
+# /setup/import
+
+
+# ── KEY API ENDPOINTS QUICK REFERENCE ────────────────────────
+# GET    /api/v1/auth/me
+# POST   /api/v1/auth/login
+# POST   /api/v1/auth/logout
+# POST   /api/v1/auth/refresh
+# POST   /api/v1/auth/forgot-password
+# POST   /api/v1/auth/reset-password
+#
+# GET    /api/v1/retailer/dashboard/stats
+# GET    /api/v1/retailer/invoices
+# POST   /api/v1/retailer/invoices
+# GET    /api/v1/retailer/invoices/:id
+# GET    /api/v1/retailer/customers
+# POST   /api/v1/retailer/customers
+# GET    /api/v1/retailer/customers/:id
+# GET    /api/v1/retailer/customers/:id/ledger
+# GET    /api/v1/retailer/inventory
+# POST   /api/v1/retailer/inventory
+# GET    /api/v1/retailer/alerts
+# PATCH  /api/v1/retailer/alerts/:id/read
+# GET    /api/v1/retailer/reports/sales
+# GET    /api/v1/retailer/reports/aging
+#
+# GET    /api/v1/catalog/:wholesalerId        ← Price protection applied here
+# GET    /api/v1/wholesaler/connections
+# PATCH  /api/v1/wholesaler/connections/:id/approve
+# PATCH  /api/v1/wholesaler/connections/:id/visibility
+# GET    /api/v1/wholesaler/catalog
+# POST   /api/v1/wholesaler/catalog
+# GET    /api/v1/wholesaler/orders
+# GET    /api/v1/orders/:id
+# POST   /api/v1/orders
+# POST   /api/v1/orders/:id/confirm          ← Sets lock, triggers socket event
+# PATCH  /api/v1/orders/:id/status
+# GET    /api/v1/orders/:id/chat/messages
+# GET    /api/v1/orders/:id/chat/suggested-replies
+#
+# GET    /api/v1/lab/jobs
+# PATCH  /api/v1/lab-jobs/:id/status
+# GET    /api/v1/lab/inventory
+# GET    /api/v1/lab/clients
+#
+# POST   /api/v1/sync/push
+# GET    /api/v1/sync/pull
+#
+# POST   /api/v1/whatsapp/send-receipt
+# POST   /api/v1/whatsapp/send-payment-reminder
+# POST   /api/v1/whatsapp/send-order-update
+# POST   /api/v1/whatsapp/send-job-update
+#
+# GET    /api/v1/admin/organisations
+# POST   /api/v1/admin/organisations
+# PATCH  /api/v1/admin/organisations/:id/subscription
+# GET    /api/v1/admin/platform/health
+
+
+# ── ENVIRONMENT VARIABLES ────────────────────────────────────
+# These must exist in .env. Never hardcode these values.
+#
+# DATABASE_URL              PostgreSQL connection string
+# REDIS_URL                 Redis connection string
+# NEXTAUTH_SECRET           Random secret for NextAuth
+# NEXTAUTH_URL              Full URL of web app
+# JWT_SECRET                Secret for API JWT signing
+# JWT_REFRESH_SECRET        Separate secret for refresh tokens
+# AWS_ACCESS_KEY_ID         For S3 file uploads
+# AWS_SECRET_ACCESS_KEY     For S3 file uploads
+# AWS_S3_BUCKET             S3 bucket name
+# WHATSAPP_API_TOKEN        Meta WhatsApp Business API token
+# WHATSAPP_PHONE_NUMBER_ID  Meta phone number ID
+# SENDGRID_API_KEY          SendGrid email API key
+# SENDGRID_FROM_EMAIL       Verified sender email
+# SOCKET_IO_CORS_ORIGIN     Allowed origins for Socket.io
+# NEXT_PUBLIC_API_URL       Public API base URL (used in browser)
+# NEXT_PUBLIC_WS_URL        Public WebSocket URL (used in browser)
+# NODE_ENV                  development | staging | production
+
+
+# ── PRISMA SCHEMA KEY MODELS (summary) ───────────────────────
+# Organisation  id, name, type(RETAILER|WHOLESALER|LABORATORY), status, subscriptionStatus
+# User          id, orgId, email, passwordHash, role, name, phone, isActive
+# Customer      id, orgId, name, phone, email, creditLimit
+# Invoice       id, orgId, customerId, status(PAID|CREDIT), total, isOffline, syncedAt
+# InvoiceItem   id, invoiceId, inventoryBatchId, priceCode, quantity, unitPrice, salePrice
+# InventoryBatch id, orgId, priceCode, prefix, productName, salePrice, stockQty, lowStockThreshold
+# CatalogProduct id, orgId, name, category, listedPrice, isPriceOnRequest, availabilityStatus
+# RetailerConnection id, wholesalerOrgId, retailerOrgId, status(PENDING|APPROVED|REJECTED), visibilityMode(FULL|PRICES_HIDDEN|CATALOG_HIDDEN)
+# Order         id, wholesalerOrgId, retailerOrgId, connectionId, status(PENDING|CONFIRMED|DISPATCHED|DELIVERED), totalValue, lockedAt
+# OrderItem     id, orderId, catalogProductId, productName, quantity, agreedPrice
+# ChatThread    id, orderId
+# ChatMessage   id, threadId, senderOrgId, content, messageType(TEXT|SYSTEM|CHANGE_REQUEST)
+# ChangeRequest id, chatMessageId, orderId, proposedChanges(JSON), status(PENDING|ACCEPTED|DECLINED)
+# LabJob        id, labOrgId, retailerOrgId, referenceNumber, prescription(JSON), status(RECEIVED|CUTTING|FITTING|QC|READY|DISPATCHED)
+# Alert         id, orgId, type, title, body, isRead, relatedEntityId, relatedEntityType
+# Subscription  id, orgId, planType, status, startDate, endDate, renewalDate
+# AuditLog      id, orgId, userId, action, entityType, entityId, metadata(JSON)
+
+
+# ── VERSION 1 SCOPE REMINDER ─────────────────────────────────
+# These features are OUT OF SCOPE for v1. Never add them:
+# - Barcode or QR scanning
+# - AI-driven forecasting or recommendations
+# - AI smart replies in chat (v2 feature — purple disabled chip only)
+# - Wholesaler revenue/profit reporting
+# - Wholesaler internal invoicing or billing
+# - Wholesaler ledger or accounts receivable
+# - Pick-list / warehouse dispatch management
+# - Bilty / transporter management
+# - General retailer-wholesaler messaging inbox (order-scoped only)
+# - Broadcast/bulk outreach from wholesaler to retailers
+# - Open consumer marketplace
+# - Cross-wholesaler product discovery
+# - Attendance tracking
+# - Prescription calculator tool
+# - iOS app (Android only in v1 — iOS dependent on budget)
+
+# ============================================================
+# END OF CURSOR RULES
+# Project: OptiWorld | SRS v1.2 | September 2026
+# ============================================================

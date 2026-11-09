@@ -1,0 +1,30 @@
+{
+  "name": "@optiworld/admin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Super Admin portal. Separate Next.js 14 app.",
+  "scripts": {
+    "dev": "next dev --port 3001",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@optiworld/shared": "workspace:*",
+    "@optiworld/ui": "workspace:*",
+    "next": "14.2.25",
+    "next-auth": "4.24.11",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-hook-form": "^7.63.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.7",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "catalog:"
+  }
+}

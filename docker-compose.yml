@@ -1,0 +1,40 @@
+# Local development only. Do not use these credentials outside this machine.
+# Values match .env.example.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: optiworld-postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: optiworld
+      POSTGRES_PASSWORD: optiworld
+      POSTGRES_DB: optiworld
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U optiworld -d optiworld']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: optiworld-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

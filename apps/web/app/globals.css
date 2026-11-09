@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ow-navy: #003153;
+  --ow-navy-light: #01486c;
+  --ow-blue: #016795;
+  --ow-blue-soft: #e5f2f7;
+  --ow-teal: #367588;
+  --ow-teal-soft: #e7f3f4;
+  --ow-amber: #d97c10;
+  --ow-amber-soft: #fef3e2;
+  --ow-red: #c93535;
+  --ow-red-soft: #fdeaea;
+  --ow-purp: #6d28d9;
+  --ow-purp-soft: #f5f0ff;
+  --ow-ink: #1a1e2e;
+  --ow-ink2: #4a5068;
+  --ow-ink3: #8892a4;
+  --ow-line: #e4e8f0;
+  --ow-bg: #f5f7fb;
+  --ow-white: #ffffff;
+}
+
+body {
+  margin: 0;
+  background: var(--ow-bg);
+  color: var(--ow-ink);
+  font-size: 19px;
+}
+
+.ow-nav-active {
+  background-color: color-mix(in srgb, var(--ow-blue) 22%, transparent);
+}
+
+@layer base {
+  @media screen {
+    tbody tr:nth-child(even) {
+      background-color: var(--ow-bg);
+    }
+  }
+}

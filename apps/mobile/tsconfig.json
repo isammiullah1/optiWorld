@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "jsx": "react-native",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "app.json"],
+  "exclude": ["node_modules"]
+}

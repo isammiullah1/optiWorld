@@ -1,0 +1,21 @@
+{
+  "name": "@optiworld/mobile-db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WatermelonDB schema for the offline retailer POS.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nozbe/watermelondb": "0.27.1"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,912 @@
+// OptiWorld — Complete Prisma schema
+// PostgreSQL. Price Protection is enforced through RetailerConnection:
+// catalog access requires status APPROVED, then visibilityMode decides
+// whether prices or the catalog itself are returned.
+// Order.lockedAt is permanent. Once set, items and quantities stay locked.
+// There are no wholesaler revenue, earnings, profit, or cumulative sales fields.
+// Order.totalValue is a single order record and must not be aggregated.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ──────────────────────────────────────────────────────────────────
+
+enum OrgType {
+  RETAILER
+  WHOLESALER
+  LABORATORY
+}
+
+enum OrgStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+// Checked in application code against the organisation type. User.role is a
+// string so a platform account is not forced into an organisation role.
+enum RetailerRole {
+  OWNER
+  STAFF
+}
+
+enum WholesalerRole {
+  ADMIN
+  ORDER_HANDLER
+}
+
+enum LaboratoryRole {
+  ADMIN
+  TECHNICIAN
+}
+
+enum SystemRole {
+  SUPER_ADMIN
+}
+
+enum PlanType {
+  RETAILER_STANDARD
+  WHOLESALER_STANDARD
+  LABORATORY_STANDARD
+}
+
+// Organisation.subscriptionStatus and Subscription.status. Trial remains
+// usable so a new organisation can sign in before the first paid period.
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  PAID
+  CREDIT
+}
+
+enum CustomerGender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  BANK_TRANSFER
+  CREDIT
+  OTHER
+}
+
+// Offline POS lifecycle. Invoice stores isOffline, syncedAt, and needsReview;
+// the sync API reports this status from those fields.
+enum SyncStatus {
+  PENDING
+  SYNCING
+  SYNCED
+  CONFLICT
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  OUT_OF_STOCK
+}
+
+enum ConnectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Drives Price Protection after ConnectionStatus is APPROVED.
+// FULL: products and prices.
+// PRICES_HIDDEN: products, prices null ("Price on request").
+// CATALOG_HIDDEN: no catalog access.
+enum VisibilityMode {
+  FULL
+  PRICES_HIDDEN
+  CATALOG_HIDDEN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum MessageType {
+  TEXT
+  SYSTEM
+  CHANGE_REQUEST
+}
+
+enum ChangeRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum JobStatus {
+  RECEIVED
+  CUTTING
+  FITTING
+  QC
+  READY
+  DISPATCHED
+  CANCELLED
+  SUBMITTED
+  CONFIRMED
+  REJECTED
+  OUTSOURCED
+}
+
+enum DeliveryStatus {
+  WAITING
+  READY
+  DELIVERED
+}
+
+enum AlertType {
+  LOW_STOCK
+  PAYMENT_DUE
+  PAYMENT_OVERDUE
+  LAB_JOB_STATUS
+  LAB_JOB_READY
+  ORDER_PLACED
+  ORDER_CONFIRMED
+  ORDER_DISPATCHED
+  ORDER_DELIVERED
+  INVOICE_REVIEW
+  CONNECTION_REQUEST
+}
+
+enum StockMovementType {
+  OPENING
+  SALE
+  RECEIVED
+  DAMAGED
+  LOST
+  CORRECTION
+}
+
+enum ChipContext {
+  NEW_ORDER
+  PRICE_QUERY
+  CHANGE_REQUEST
+  CLOSING
+  GENERAL
+}
+
+// ── Organisations and users ────────────────────────────────────────────────
+
+model Organisation {
+  id                   String             @id @default(uuid()) @db.Uuid
+  name                 String
+  username             String?            @unique @db.VarChar(32)
+  type                 OrgType
+  status               OrgStatus          @default(ACTIVE)
+  phone                String?
+  city                 String?
+  address              String?            @db.Text
+  whatsappNumber       String?            @map("whatsapp_number")
+  listingProfileNotes  String?            @map("listing_profile_notes") @db.Text
+  billHeading          String?            @map("bill_heading") @db.VarChar(120)
+  billTagline          String?            @map("bill_tagline") @db.VarChar(160)
+  billTerms            String?            @map("bill_terms") @db.Text
+  billLogoKey          String?            @unique @map("bill_logo_key") @db.VarChar(48)
+  subscriptionStatus        SubscriptionStatus @default(TRIAL) @map("subscription_status")
+  planType                  PlanType           @map("plan_type")
+  defaultLowStockThreshold  Int                @default(5) @map("default_low_stock_threshold")
+  paymentTermDays           Int                @default(30) @map("payment_term_days")
+  reminderBeforeEnabled     Boolean            @default(true) @map("reminder_before_enabled")
+  reminderBeforeDays        Int                @default(3) @map("reminder_before_days")
+  reminderOnDueEnabled      Boolean            @default(true) @map("reminder_on_due_enabled")
+  reminderAfterEnabled      Boolean            @default(true) @map("reminder_after_enabled")
+  reminderAfterDays         Int                @default(7) @map("reminder_after_days")
+  adminNotes           String?            @map("admin_notes") @db.Text
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  deletedAt            DateTime?          @map("deleted_at")
+
+  users                  User[]
+  customers              Customer[]
+  invoices               Invoice[]
+  payments               Payment[]
+  inventoryBatches       InventoryBatch[]
+  catalogProducts        CatalogProduct[]
+  wholesalerConnections  RetailerConnection[] @relation("WholesalerConnections")
+  retailerConnections    RetailerConnection[] @relation("RetailerConnections")
+  wholesalerOrders       Order[]              @relation("WholesalerOrders")
+  retailerOrders         Order[]              @relation("RetailerOrders")
+  sentMessages           ChatMessage[]        @relation("MessageSenderOrg")
+  labJobs                LabJob[]             @relation("LabOrganisation")
+  retailerLabJobs        LabJob[]             @relation("RetailerLabJobs")
+  deliveries             Delivery[]
+  labInventoryItems      LabInventory[]
+  labStockMovements      LabStockMovement[]
+  labClients             LabClient[]          @relation("LabClientOwner")
+  labClientLinks         LabClient[]          @relation("LabClientLink")
+  subscriptions          Subscription[]
+  invites                OrganisationInvite[]
+  alerts                 Alert[]
+  auditLogs              AuditLog[]
+  stockMovements         StockMovement[]
+  customerPrescriptions  CustomerPrescription[]
+  invoiceSequence        InvoiceSequence?
+
+  @@index([type, status])
+  @@index([subscriptionStatus])
+  @@index([deletedAt])
+  @@map("organisations")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  orgId        String    @map("org_id") @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  phone        String?
+  // OWNER | STAFF for retailers, ADMIN | ORDER_HANDLER for wholesalers,
+  // ADMIN | TECHNICIAN for laboratories. Reject any other value at login.
+  role         String    @db.VarChar(32)
+  // Null means every laboratory section. Admins ignore this and keep full access.
+  featureAccess Json?    @map("feature_access")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  org                  Organisation         @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  sentMessages         ChatMessage[]        @relation("MessageSenderUser")
+  labJobStatusChanges  LabJobStatusHistory[]
+  labStockMovements    LabStockMovement[]
+  alerts               Alert[]
+  auditLogs            AuditLog[]
+  refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
+
+  @@index([orgId])
+  @@index([orgId, role])
+  @@index([isActive])
+  @@map("users")
+}
+
+model SuperAdmin {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  role         SystemRole @default(SUPER_ADMIN)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("super_admins")
+}
+
+// ── Retailer ───────────────────────────────────────────────────────────────
+
+model Customer {
+  id                String    @id @default(uuid()) @db.Uuid
+  orgId             String    @map("org_id") @db.Uuid
+  name              String
+  phone             String?
+  whatsappNumber    String?         @map("whatsapp_number")
+  email             String?
+  gender            CustomerGender?
+  dateOfBirth       DateTime?       @map("date_of_birth") @db.Date
+  referredBy        String?         @map("referred_by")
+  address           String?         @db.Text
+  creditLimit       Decimal   @default(0) @map("credit_limit") @db.Decimal(12, 2)
+  prescriptionNotes String?   @map("prescription_notes") @db.Text
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  org            Organisation           @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  invoices       Invoice[]
+  payments       Payment[]
+  prescriptions  CustomerPrescription[]
+
+  @@index([orgId])
+  @@index([orgId, deletedAt])
+  @@index([orgId, phone])
+  @@map("customers")
+}
+
+model CustomerPrescription {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  right      Json
+  left       Json
+  add        String   @default("")
+  pd         String   @default("")
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  org      Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  customer Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, customerId])
+  @@index([customerId])
+  @@map("customer_prescriptions")
+}
+
+model Invoice {
+  id            String        @id @default(uuid()) @db.Uuid
+  orgId         String        @map("org_id") @db.Uuid
+  customerId    String        @map("customer_id") @db.Uuid
+  status        InvoiceStatus
+  total         Decimal       @db.Decimal(12, 2)
+  discount      Decimal       @default(0) @db.Decimal(12, 2)
+  paymentType   PaymentMethod @map("payment_type")
+  // WatermelonDB UUID assigned offline. Kept permanently so a retry cannot create a second invoice.
+  localId       String?       @unique @map("local_id") @db.Uuid
+  invoiceNumber Int           @map("invoice_number")
+  isOffline     Boolean       @default(false) @map("is_offline")
+  issuedAt      DateTime      @map("issued_at")
+  syncedAt      DateTime?     @map("synced_at")
+  cancelledAt   DateTime?     @map("cancelled_at")
+  needsReview   Boolean       @default(false) @map("needs_review")
+  reviewReason  String?       @map("review_reason") @db.Text
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  org      Organisation  @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items    InvoiceItem[]
+  payments Payment[]
+  labJobs  LabJob[]
+  delivery Delivery?
+
+  @@unique([orgId, invoiceNumber])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, createdAt])
+  @@index([orgId, isOffline])
+  @@index([orgId, needsReview])
+  @@index([customerId])
+  @@map("invoices")
+}
+
+model Delivery {
+  id          String         @id @default(uuid()) @db.Uuid
+  orgId       String         @map("org_id") @db.Uuid
+  invoiceId   String         @unique @map("invoice_id") @db.Uuid
+  address     String         @db.Text
+  charge      Decimal        @db.Decimal(12, 2)
+  status      DeliveryStatus @default(WAITING)
+  readyAt     DateTime?      @map("ready_at")
+  deliveredAt DateTime?      @map("delivered_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  org     Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  invoice Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, status])
+  @@map("deliveries")
+}
+
+// Per-organisation counter. The next offline sync assigns lastNumber + 1.
+model InvoiceSequence {
+  orgId      String @id @map("org_id") @db.Uuid
+  lastNumber Int    @default(0) @map("last_number")
+
+  org Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_sequences")
+}
+
+model InvoiceItem {
+  id               String  @id @default(uuid()) @db.Uuid
+  invoiceId        String  @map("invoice_id") @db.Uuid
+  inventoryBatchId String? @map("inventory_batch_id") @db.Uuid
+  productName      String  @map("product_name")
+  priceCode        String  @map("price_code")
+  quantity         Int
+  unitPrice        Decimal @map("unit_price") @db.Decimal(12, 2)
+  salePrice        Decimal @map("sale_price") @db.Decimal(12, 2)
+  stockShortfall   Int     @default(0) @map("stock_shortfall")
+  prescription     Json?
+
+  invoice        Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  inventoryBatch InventoryBatch? @relation(fields: [inventoryBatchId], references: [id], onDelete: SetNull)
+  stockMovement  StockMovement?
+
+  @@index([invoiceId])
+  @@index([inventoryBatchId])
+  @@map("invoice_items")
+}
+
+model InventoryBatch {
+  id                String    @id @default(uuid()) @db.Uuid
+  orgId             String    @map("org_id") @db.Uuid
+  priceCode         String    @map("price_code")
+  prefix            String
+  productName       String    @map("product_name")
+  brand             String?
+  category          String
+  salePrice         Decimal   @map("sale_price") @db.Decimal(12, 2)
+  costPrice         Decimal   @default(0) @map("cost_price") @db.Decimal(12, 2)
+  stockQty          Int       @default(0) @map("stock_qty")
+  lowStockThreshold    Int       @default(5) @map("low_stock_threshold")
+  prescriptionRequired Boolean?  @map("prescription_required")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  org            Organisation    @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  invoiceItems   InvoiceItem[]
+  stockMovements StockMovement[]
+
+  @@unique([orgId, prefix, priceCode])
+  @@index([orgId])
+  @@index([orgId, deletedAt])
+  @@index([orgId, category])
+  @@map("inventory_batches")
+}
+
+model StockMovement {
+  id              String            @id @default(uuid()) @db.Uuid
+  orgId           String            @map("org_id") @db.Uuid
+  batchId         String            @map("batch_id") @db.Uuid
+  type            StockMovementType
+  quantityChange  Int               @map("quantity_change")
+  balanceAfter    Int               @map("balance_after")
+  note            String?           @db.Text
+  invoiceItemId   String?           @unique @map("invoice_item_id") @db.Uuid
+  createdByUserId String?           @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  org         Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  batch       InventoryBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  invoiceItem InvoiceItem? @relation(fields: [invoiceItemId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, batchId, createdAt])
+  @@map("stock_movements")
+}
+
+model Payment {
+  id         String        @id @default(uuid()) @db.Uuid
+  customerId String        @map("customer_id") @db.Uuid
+  invoiceId  String?       @map("invoice_id") @db.Uuid
+  orgId      String        @map("org_id") @db.Uuid
+  amount     Decimal       @db.Decimal(12, 2)
+  method     PaymentMethod
+  notes      String?       @db.Text
+  recordedAt DateTime      @default(now()) @map("recorded_at")
+
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoice  Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  org      Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+
+  @@index([customerId])
+  @@index([invoiceId])
+  @@index([orgId])
+  @@index([recordedAt])
+  @@map("payments")
+}
+
+// ── Wholesaler ─────────────────────────────────────────────────────────────
+
+model CatalogProduct {
+  id                 String             @id @default(uuid()) @db.Uuid
+  orgId              String             @map("org_id") @db.Uuid
+  name               String
+  category           String
+  description        String?            @db.Text
+  listedPrice        Decimal?           @map("listed_price") @db.Decimal(12, 2)
+  isPriceOnRequest   Boolean            @default(false) @map("is_price_on_request")
+  availabilityStatus AvailabilityStatus @default(AVAILABLE) @map("availability_status")
+  productCode        String             @default("") @map("product_code")
+  displayOrder       Int                @default(0) @map("display_order")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  deletedAt          DateTime?          @map("deleted_at")
+
+  org        Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  orderItems OrderItem[]
+
+  @@index([orgId])
+  @@index([orgId, deletedAt])
+  @@index([orgId, category])
+  @@index([orgId, availabilityStatus])
+  @@index([orgId, displayOrder])
+  @@map("catalog_products")
+}
+
+model RetailerConnection {
+  id              String           @id @default(uuid()) @db.Uuid
+  wholesalerOrgId String           @map("wholesaler_org_id") @db.Uuid
+  retailerOrgId   String           @map("retailer_org_id") @db.Uuid
+  status          ConnectionStatus @default(PENDING)
+  visibilityMode   VisibilityMode   @default(FULL) @map("visibility_mode")
+  requestedByOrgId String?          @map("requested_by_org_id") @db.Uuid
+  approvedAt       DateTime?        @map("approved_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  wholesaler Organisation @relation("WholesalerConnections", fields: [wholesalerOrgId], references: [id], onDelete: Restrict)
+  retailer   Organisation @relation("RetailerConnections", fields: [retailerOrgId], references: [id], onDelete: Restrict)
+  orders     Order[]
+
+  @@unique([wholesalerOrgId, retailerOrgId])
+  @@index([wholesalerOrgId])
+  @@index([retailerOrgId])
+  @@index([wholesalerOrgId, status])
+  @@index([retailerOrgId, status])
+  @@index([visibilityMode])
+  @@map("retailer_connections")
+}
+
+model Order {
+  id              String      @id @default(uuid()) @db.Uuid
+  wholesalerOrgId String      @map("wholesaler_org_id") @db.Uuid
+  retailerOrgId   String      @map("retailer_org_id") @db.Uuid
+  connectionId    String      @map("connection_id") @db.Uuid
+  status          OrderStatus @default(PENDING)
+  // Per-order amount only. Do not sum this into a wholesaler revenue report.
+  totalValue      Decimal?    @map("total_value") @db.Decimal(12, 2)
+  notes           String?     @db.Text
+  lockedAt        DateTime?   @map("locked_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  wholesaler     Organisation       @relation("WholesalerOrders", fields: [wholesalerOrgId], references: [id], onDelete: Restrict)
+  retailer       Organisation       @relation("RetailerOrders", fields: [retailerOrgId], references: [id], onDelete: Restrict)
+  connection     RetailerConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  items          OrderItem[]
+  chatThread     ChatThread?
+  changeRequests ChangeRequest[]
+
+  @@index([wholesalerOrgId])
+  @@index([retailerOrgId])
+  @@index([connectionId])
+  @@index([wholesalerOrgId, status])
+  @@index([retailerOrgId, status])
+  @@index([lockedAt])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id               String    @id @default(uuid()) @db.Uuid
+  orderId          String    @map("order_id") @db.Uuid
+  catalogProductId String?   @map("catalog_product_id") @db.Uuid
+  productName      String    @map("product_name")
+  quantity         Int
+  agreedPrice      Decimal?  @map("agreed_price") @db.Decimal(12, 2)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  catalogProduct CatalogProduct? @relation(fields: [catalogProductId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([catalogProductId])
+  @@map("order_items")
+}
+
+// ── Order chat ─────────────────────────────────────────────────────────────
+// Messages belong to one order thread. There is no cross-order inbox.
+
+model ChatThread {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @unique @map("order_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  order    Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id           String      @id @default(uuid()) @db.Uuid
+  threadId     String      @map("thread_id") @db.Uuid
+  senderOrgId  String      @map("sender_org_id") @db.Uuid
+  senderUserId String      @map("sender_user_id") @db.Uuid
+  content      String      @db.Text
+  messageType  MessageType @map("message_type")
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  thread        ChatThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderOrg     Organisation   @relation("MessageSenderOrg", fields: [senderOrgId], references: [id], onDelete: Restrict)
+  senderUser    User           @relation("MessageSenderUser", fields: [senderUserId], references: [id], onDelete: Restrict)
+  changeRequest ChangeRequest?
+
+  @@index([threadId])
+  @@index([threadId, createdAt])
+  @@index([senderOrgId])
+  @@index([senderUserId])
+  @@map("chat_messages")
+}
+
+model ChangeRequest {
+  id              String              @id @default(uuid()) @db.Uuid
+  chatMessageId   String              @unique @map("chat_message_id") @db.Uuid
+  orderId         String              @map("order_id") @db.Uuid
+  proposedChanges Json                @map("proposed_changes")
+  status          ChangeRequestStatus @default(PENDING)
+  respondedAt     DateTime?           @map("responded_at")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  chatMessage ChatMessage @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([orderId, status])
+  @@index([chatMessageId])
+  @@map("change_requests")
+}
+
+// Static wholesaler reply chips. Inserted into the draft only; never sent automatically.
+model SuggestedReplyChip {
+  id           String      @id @default(uuid()) @db.Uuid
+  context      ChipContext
+  label        String
+  text         String      @db.Text
+  displayOrder Int         @map("display_order")
+  isActive     Boolean     @default(true) @map("is_active")
+
+  @@index([context, isActive, displayOrder])
+  @@map("suggested_reply_chips")
+}
+
+// ── Laboratory ─────────────────────────────────────────────────────────────
+
+model LabJob {
+  id                  String    @id @default(uuid()) @db.Uuid
+  labOrgId            String    @map("lab_org_id") @db.Uuid
+  retailerOrgId       String?   @map("retailer_org_id") @db.Uuid
+  retailerInvoiceId   String?   @map("retailer_invoice_id") @db.Uuid
+  labClientId         String?   @map("lab_client_id") @db.Uuid
+  referenceNumber     String    @unique @map("reference_number")
+  patientName         String    @map("patient_name")
+  patientPhone        String?   @map("patient_phone")
+  prescription        Json
+  frameDetails        Json?     @map("frame_details")
+  lensDetails         Json?     @map("lens_details")
+  specialInstructions String?   @map("special_instructions") @db.Text
+  status              JobStatus @default(RECEIVED)
+  isUrgent            Boolean   @default(false) @map("is_urgent")
+  notifyWhatsapp      Boolean   @default(true) @map("notify_whatsapp")
+  notes               String?   @db.Text
+  completedAt         DateTime? @map("completed_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  lab             Organisation          @relation("LabOrganisation", fields: [labOrgId], references: [id], onDelete: Restrict)
+  retailer        Organisation?         @relation("RetailerLabJobs", fields: [retailerOrgId], references: [id], onDelete: SetNull)
+  retailerInvoice Invoice?              @relation(fields: [retailerInvoiceId], references: [id], onDelete: SetNull)
+  labClient       LabClient?            @relation(fields: [labClientId], references: [id], onDelete: SetNull)
+  statusHistory   LabJobStatusHistory[]
+  stockMovements  LabStockMovement[]
+
+  @@index([labOrgId])
+  @@index([labClientId])
+  @@index([labOrgId, status])
+  @@index([referenceNumber])
+  @@index([retailerOrgId])
+  @@index([retailerOrgId, completedAt])
+  @@index([retailerInvoiceId])
+  @@index([createdAt])
+  @@map("lab_jobs")
+}
+
+model LabJobStatusHistory {
+  id              String    @id @default(uuid()) @db.Uuid
+  labJobId        String    @map("lab_job_id") @db.Uuid
+  status          JobStatus
+  notes           String?   @db.Text
+  changedAt       DateTime  @default(now()) @map("changed_at")
+  changedByUserId String?   @map("changed_by_user_id") @db.Uuid
+
+  labJob        LabJob @relation(fields: [labJobId], references: [id], onDelete: Cascade)
+  changedByUser User?  @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([labJobId])
+  @@index([labJobId, changedAt])
+  @@index([changedByUserId])
+  @@map("lab_job_status_history")
+}
+
+model LabInventory {
+  id           String   @id @default(uuid()) @db.Uuid
+  labOrgId     String   @map("lab_org_id") @db.Uuid
+  name         String
+  category     String
+  quantity     Decimal  @db.Decimal(12, 3)
+  unit         String
+  reorderLevel Decimal  @default(0) @map("reorder_level") @db.Decimal(12, 3)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  lab       Organisation       @relation(fields: [labOrgId], references: [id], onDelete: Restrict)
+  movements LabStockMovement[]
+
+  @@index([labOrgId])
+  @@index([labOrgId, category])
+  @@map("lab_inventory")
+}
+
+model LabStockMovement {
+  id              String   @id @default(uuid()) @db.Uuid
+  labOrgId        String   @map("lab_org_id") @db.Uuid
+  itemId          String   @map("item_id") @db.Uuid
+  kind            String   @db.VarChar(16)
+  quantity        Decimal  @db.Decimal(12, 3)
+  balanceAfter    Decimal  @map("balance_after") @db.Decimal(12, 3)
+  supplier        String?
+  labJobId        String?  @map("lab_job_id") @db.Uuid
+  occurredAt      DateTime @map("occurred_at")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  lab       Organisation @relation(fields: [labOrgId], references: [id], onDelete: Restrict)
+  item      LabInventory @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  labJob    LabJob?      @relation(fields: [labJobId], references: [id], onDelete: SetNull)
+  createdBy User?        @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([labOrgId, itemId, occurredAt])
+  @@index([labJobId])
+  @@index([createdByUserId])
+  @@map("lab_stock_movements")
+}
+
+model LabClient {
+  id          String           @id @default(uuid()) @db.Uuid
+  labOrgId    String           @map("lab_org_id") @db.Uuid
+  name        String
+  phone       String?
+  linkedOrgId      String?          @map("linked_org_id") @db.Uuid
+  requestedByOrgId String?          @map("requested_by_org_id") @db.Uuid
+  // APPROVED for walk-in clients and accepted shops. A retailer request starts PENDING.
+  status      ConnectionStatus @default(APPROVED)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  lab       Organisation  @relation("LabClientOwner", fields: [labOrgId], references: [id], onDelete: Restrict)
+  linkedOrg Organisation? @relation("LabClientLink", fields: [linkedOrgId], references: [id], onDelete: SetNull)
+  jobs      LabJob[]
+
+  @@unique([labOrgId, linkedOrgId])
+  @@index([labOrgId])
+  @@index([labOrgId, status])
+  @@index([linkedOrgId])
+  @@index([linkedOrgId, status])
+  @@map("lab_clients")
+}
+
+// ── Subscriptions, alerts, audit ───────────────────────────────────────────
+
+model Subscription {
+  id          String             @id @default(uuid()) @db.Uuid
+  orgId       String             @map("org_id") @db.Uuid
+  planType    PlanType           @map("plan_type")
+  status      SubscriptionStatus
+  startDate   DateTime           @map("start_date")
+  endDate     DateTime           @map("end_date")
+  renewalDate DateTime           @map("renewal_date")
+  notes       String?            @db.Text
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  org Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([renewalDate])
+  @@map("subscriptions")
+}
+
+model OrganisationInvite {
+  id        String    @id @default(uuid()) @db.Uuid
+  orgId     String    @map("org_id") @db.Uuid
+  email     String
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  org Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([email])
+  @@map("organisation_invites")
+}
+
+model Alert {
+  id                String    @id @default(uuid()) @db.Uuid
+  orgId             String    @map("org_id") @db.Uuid
+  userId            String?   @map("user_id") @db.Uuid
+  type              AlertType
+  title             String
+  body              String    @db.Text
+  isRead            Boolean   @default(false) @map("is_read")
+  relatedEntityId   String?   @map("related_entity_id") @db.Uuid
+  relatedEntityType String?   @map("related_entity_type")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  org  Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([orgId, isRead, createdAt])
+  @@index([userId])
+  @@index([relatedEntityType, relatedEntityId])
+  @@map("alerts")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String?  @map("org_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  org  Organisation? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  user User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([orgId, createdAt])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ── Auth tokens ────────────────────────────────────────────────────────────
+
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String?   @map("user_id") @db.Uuid
+  superAdminId String?   @map("super_admin_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  superAdmin SuperAdmin? @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([superAdminId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String?   @map("user_id") @db.Uuid
+  superAdminId String?   @map("super_admin_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at")
+  usedAt       DateTime? @map("used_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  superAdmin SuperAdmin? @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([superAdminId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}

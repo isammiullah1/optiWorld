@@ -1,0 +1,26 @@
+{
+  "name": "@optiworld/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared TypeScript types, constants, enums, and utilities.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types/index.ts",
+    "./enums": "./src/enums/index.ts",
+    "./constants": "./src/constants/index.ts",
+    "./utils": "./src/utils/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "libphonenumber-js": "^1.13.14",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

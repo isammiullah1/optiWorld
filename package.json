@@ -1,0 +1,43 @@
+{
+  "name": "optiworld",
+  "version": "0.0.0",
+  "private": true,
+  "description": "OptiWorld B2B SaaS platform for the optical industry.",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm --filter \"./apps/*\" --filter \"./packages/*\" typecheck",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "prepare": "husky"
+  },
+  "prisma": {
+    "schema": "packages/db/prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.5.3",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.33.1"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  }
+}

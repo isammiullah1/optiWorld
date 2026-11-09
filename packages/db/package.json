@@ -1,0 +1,33 @@
+{
+  "name": "@optiworld/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Prisma ORM schema, migrations, and development seed for PostgreSQL.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "prisma:validate": "node ../../scripts/with-root-env.mjs prisma validate",
+    "prisma:generate": "node ../../scripts/with-root-env.mjs prisma generate",
+    "prisma:push": "node ../../scripts/with-root-env.mjs prisma db push",
+    "prisma:seed": "node ../../scripts/with-root-env.mjs prisma db seed",
+    "prisma:migrate": "node ../../scripts/with-root-env.mjs prisma migrate dev"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "bcrypt": "^6.0.0",
+    "prisma": "5.22.0",
+    "tsx": "^4.23.15",
+    "typescript": "catalog:"
+  }
+}
