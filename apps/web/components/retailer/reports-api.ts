@@ -2,9 +2,11 @@
 
 import {
   CreditReportSchema,
+  CustomerReportSchema,
   InventoryReportSchema,
   SalesReportSchema,
   type CreditReport,
+  type CustomerReport,
   type InventoryReport,
   type ReportType,
   type SalesReport,
@@ -16,6 +18,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const SalesResponseSchema = z.object({ success: z.literal(true), data: SalesReportSchema });
 const InventoryResponseSchema = z.object({ success: z.literal(true), data: InventoryReportSchema });
 const CreditResponseSchema = z.object({ success: z.literal(true), data: CreditReportSchema });
+const CustomerResponseSchema = z.object({ success: z.literal(true), data: CustomerReportSchema });
 
 export function defaultReportRange(now = new Date()): { from: string; to: string } {
   const to = now.toISOString().slice(0, 10);
@@ -40,11 +43,25 @@ export async function loadInventoryReport(
   accessToken: string,
   from: string,
   to: string,
+  quietDays = 60,
 ): Promise<InventoryReport> {
   const response = await getJson(
-    `/api/v1/retailer/reports/inventory?from=${from}&to=${to}`,
+    `/api/v1/retailer/reports/inventory?from=${from}&to=${to}&quietDays=${quietDays}`,
     accessToken,
     InventoryResponseSchema,
+  );
+  return response.data;
+}
+
+export async function loadCustomerReport(
+  accessToken: string,
+  from: string,
+  to: string,
+): Promise<CustomerReport> {
+  const response = await getJson(
+    `/api/v1/retailer/reports/customers?from=${from}&to=${to}`,
+    accessToken,
+    CustomerResponseSchema,
   );
   return response.data;
 }
@@ -68,8 +85,12 @@ export async function clearInvoiceCredit(
   });
 }
 
-export async function removeSale(accessToken: string, invoiceId: string): Promise<void> {
-  await sendJson(`/api/v1/retailer/invoices/${invoiceId}`, accessToken, 'DELETE');
+export async function removeSale(
+  accessToken: string,
+  invoiceId: string,
+  reason: string,
+): Promise<void> {
+  await sendJson(`/api/v1/retailer/invoices/${invoiceId}`, accessToken, 'DELETE', { reason });
 }
 
 export async function downloadReport(
@@ -78,11 +99,17 @@ export async function downloadReport(
   from: string,
   to: string,
   format: 'xlsx' | 'pdf',
+  quietDays?: number,
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/api/v1/retailer/reports/export`, {
     method: 'POST',
     headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ reportType, dateRange: { from, to }, format }),
+    body: JSON.stringify({
+      reportType,
+      dateRange: { from, to },
+      format,
+      ...(quietDays === undefined ? {} : { quietDays }),
+    }),
   });
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);

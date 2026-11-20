@@ -12,6 +12,7 @@ import Link from 'next/link';
 
 import { formatRupee, formatShortDate } from './dashboard-format';
 import { needsPrescription, prescriptionLabel } from './item-prescription';
+import { LabServiceChecks, type LabServiceOption } from './LabServiceChecks';
 import { BillSettlement } from './BillSettlement';
 import { ShopMark } from './ShopMark';
 import type { CartLine } from './SaleCart';
@@ -60,6 +61,8 @@ export function BillingPad({
   onAssignAll,
   onBillLab,
   onComplete,
+  servicesByLab,
+  onToggleLabService,
 }: {
   shopName: string;
   billHeading: string;
@@ -104,6 +107,8 @@ export function BillingPad({
   onAssignAll: (value: boolean) => void;
   onBillLab: (labOrgId: string) => void;
   onComplete: () => void;
+  servicesByLab: Readonly<Record<string, readonly LabServiceOption[]>>;
+  onToggleLabService: (lineId: string, serviceId: string) => void;
 }): React.ReactElement {
   const heading = billHeading.trim() || shopName || 'Shop';
   const needle = query.trim().toLowerCase();
@@ -181,12 +186,26 @@ export function BillingPad({
                               {prescriptionLabel(line.prescription)}
                             </p>
                           ) : null}
-                          {line.prescription?.labOrgId ? (
-                            <span className="block text-xs text-ink3">
-                              Lab:{' '}
-                              {labs.find((lab) => lab.id === line.prescription?.labOrgId)?.name ??
-                                'Selected lab'}
-                            </span>
+                          {lineLabId(line, assignAllToLab, billLabId) ? (
+                            <>
+                              <span className="block text-xs text-ink3">
+                                Lab:{' '}
+                                {labs.find(
+                                  (lab) => lab.id === lineLabId(line, assignAllToLab, billLabId),
+                                )?.name ?? 'Selected lab'}
+                              </span>
+                              <LabServiceChecks
+                                services={
+                                  servicesByLab[lineLabId(line, assignAllToLab, billLabId) ?? ''] ??
+                                  []
+                                }
+                                selected={line.prescription?.labServiceIds ?? []}
+                                showPrices={false}
+                                onToggle={(serviceId) =>
+                                  onToggleLabService(line.inventoryBatchId, serviceId)
+                                }
+                              />
+                            </>
                           ) : null}
                           <div className="mt-1 flex flex-wrap items-center gap-2">
                             {needsPrescription(
@@ -533,6 +552,19 @@ export function BillingPad({
       </div>
     </article>
   );
+}
+
+function lineLabId(line: CartLine, assignAll: boolean, billLabId: string): string | null {
+  if (!needsPrescription(line.category, line.productName, line.prescriptionRequired)) {
+    return null;
+  }
+  if (!line.prescription) {
+    return null;
+  }
+  if (assignAll) {
+    return billLabId.length > 0 ? billLabId : null;
+  }
+  return line.prescription.labOrgId ?? null;
 }
 
 function lineTotal(unitPrice: string, quantity: number): string {

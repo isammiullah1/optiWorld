@@ -1,66 +1,26 @@
 'use client';
 
 import {
-  isProcessingStatus,
   JOB_STATUS_LABEL,
-  type JobStatus,
+  type LabBill,
+  type LabClientRow,
   type LabFeature,
   type LabKanbanCard,
   type RetailerAlert,
 } from '@optiworld/shared';
+import { Plus } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { formatRelativeTime } from '@/components/retailer/dashboard-format';
 
-import { loadLabBoard } from './lab-api';
+import { AddLabJobDialog } from './AddLabJobDialog';
+import { JOB_STAGE_LOOK } from './job-stage-look';
 import { loadLabProfile } from './lab-account-api';
+import { loadLabBoard, loadLabClients } from './lab-api';
 import { loadLabNotifications } from './lab-notifications-api';
-
-const STAGES: readonly {
-  id: string;
-  label: string;
-  className: string;
-  match: (status: JobStatus) => boolean;
-}[] = [
-  {
-    id: 'SUBMITTED',
-    label: 'Submitted',
-    className: 'bg-amber-soft text-amber',
-    match: (status) => status === 'SUBMITTED',
-  },
-  {
-    id: 'CONFIRMED',
-    label: 'Confirmed',
-    className: 'bg-action-soft text-action',
-    match: (status) => status === 'CONFIRMED',
-  },
-  {
-    id: 'RECEIVED',
-    label: 'Received',
-    className: 'bg-canvas text-ink2',
-    match: (status) => status === 'RECEIVED',
-  },
-  {
-    id: 'PROCESSING',
-    label: 'Processing',
-    className: 'bg-action-soft text-action',
-    match: isProcessingStatus,
-  },
-  {
-    id: 'READY',
-    label: 'Ready',
-    className: 'bg-teal-soft text-teal',
-    match: (status) => status === 'READY',
-  },
-  {
-    id: 'DISPATCHED',
-    label: 'Dispatched',
-    className: 'bg-canvas text-ink3',
-    match: (status) => status === 'DISPATCHED',
-  },
-];
+import { WalkInInvoice } from './WalkInInvoice';
 
 export function LabDashboard(): React.ReactElement {
   const { data: session } = useSession();
@@ -69,6 +29,10 @@ export function LabDashboard(): React.ReactElement {
   const [features, setFeatures] = useState<LabFeature[] | null>(null);
   const [jobs, setJobs] = useState<LabKanbanCard[] | null>(null);
   const [notices, setNotices] = useState<RetailerAlert[] | null>(null);
+  const [clients, setClients] = useState<LabClientRow[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [invoice, setInvoice] = useState<LabBill | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -83,17 +47,20 @@ export function LabDashboard(): React.ReactElement {
         }
         setLabName(profile.laboratory.name);
         setFeatures(profile.features);
-        const [board, notes] = await Promise.all([
-          profile.features.includes('jobs') ? loadLabBoard(token, {}) : Promise.resolve(null),
+        const canJobs = profile.features.includes('jobs');
+        const [board, notes, nextClients] = await Promise.all([
+          canJobs ? loadLabBoard(token, {}) : Promise.resolve(null),
           profile.features.includes('notifications')
             ? loadLabNotifications(token)
             : Promise.resolve(null),
+          canJobs ? loadLabClients(token) : Promise.resolve([]),
         ]);
         if (!active) {
           return;
         }
         setJobs(board?.jobs ?? null);
         setNotices(notes);
+        setClients(nextClients);
         setError(null);
       })
       .catch((caught: unknown) => {
@@ -104,18 +71,31 @@ export function LabDashboard(): React.ReactElement {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [token, refreshKey]);
 
   const activeJobs = (jobs ?? [])
     .filter((job) => job.status !== 'DISPATCHED' && job.status !== 'CANCELLED')
     .slice(0, 8);
   const unread = notices?.filter((notice) => !notice.isRead).length ?? 0;
+  const canAdd = Boolean(token) && features?.includes('jobs') === true;
 
   return (
     <section className="grid gap-4">
-      <div>
-        <h2 className="text-xl font-semibold text-ink">{labName || 'Laboratory'}</h2>
-        <p className="text-sm text-ink2">Jobs in progress and notices from connected shops.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-ink">{labName || 'Laboratory'}</h2>
+          <p className="text-sm text-ink2">Jobs in progress and notices from connected shops.</p>
+        </div>
+        {canAdd && token ? (
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-action px-4 text-sm font-semibold text-white"
+            onClick={() => setAdding(true)}
+          >
+            <Plus size={16} aria-hidden="true" />
+            Add New Job
+          </button>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="text-sm text-danger">
@@ -131,24 +111,35 @@ export function LabDashboard(): React.ReactElement {
             {features.includes('jobs') && jobs ? (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {STAGES.map((stage) => {
+                  {JOB_STAGE_LOOK.map((stage) => {
                     const count = jobs.filter((job) => stage.match(job.status)).length;
+                    const Icon = stage.icon;
                     return (
                       <Link
                         key={stage.id}
                         href="/laboratory/jobs"
-                        className={`rounded-xl border border-line px-3 py-3 ${stage.className}`}
+                        className={`flex items-center gap-3 rounded-xl border-2 px-3 py-3 ${stage.tone}`}
                       >
-                        <p className="text-xs font-medium uppercase tracking-wide">{stage.label}</p>
-                        <p className="mt-1 text-2xl font-semibold text-ink">{count}</p>
+                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white">
+                          <Icon className="h-6 w-6" aria-hidden />
+                        </span>
+                        <span>
+                          <p className="text-xs font-medium uppercase tracking-wide">
+                            {stage.label}
+                          </p>
+                          <p className="mt-1 text-2xl font-semibold text-ink">{count}</p>
+                        </span>
                       </Link>
                     );
                   })}
                 </div>
-                <article className="rounded-xl border border-line bg-white">
-                  <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-                    <h3 className="text-md font-semibold text-ink">Active jobs</h3>
-                    <Link href="/laboratory/jobs" className="text-sm font-medium text-action">
+                <article className="overflow-hidden rounded-xl border-2 border-action bg-white">
+                  <header className="flex items-center justify-between gap-3 bg-action px-4 py-3 text-white">
+                    <h3 className="text-md font-semibold">Active jobs</h3>
+                    <Link
+                      href="/laboratory/jobs"
+                      className="text-sm font-medium text-white underline"
+                    >
                       Open board
                     </Link>
                   </header>
@@ -166,7 +157,12 @@ export function LabDashboard(): React.ReactElement {
                               <span className="text-sm font-semibold text-action">
                                 {job.referenceNumber}
                               </span>
-                              <span className="rounded-full bg-canvas px-2 py-0.5 text-xs font-medium text-ink2">
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                                  JOB_STAGE_LOOK.find((stage) => stage.match(job.status))?.tone ??
+                                  'border-line bg-canvas text-ink2'
+                                }`}
+                              >
                                 {JOB_STATUS_LABEL[job.status]}
                               </span>
                               {job.isUrgent ? (
@@ -193,11 +189,14 @@ export function LabDashboard(): React.ReactElement {
               </article>
             )}
           </div>
-          <aside className="rounded-xl border border-line bg-white">
-            <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-              <h3 className="text-md font-semibold text-ink">Notifications</h3>
+          <aside className="overflow-hidden rounded-xl border-2 border-navy bg-white">
+            <header className="flex items-center justify-between gap-3 bg-navy px-4 py-3 text-white">
+              <h3 className="text-md font-semibold">Notifications</h3>
               {features.includes('notifications') ? (
-                <Link href="/laboratory/notifications" className="text-sm font-medium text-action">
+                <Link
+                  href="/laboratory/notifications"
+                  className="text-sm font-medium text-white underline"
+                >
                   {unread > 0 ? `${unread} unread` : 'View all'}
                 </Link>
               ) : null}
@@ -208,21 +207,39 @@ export function LabDashboard(): React.ReactElement {
                   No notices yet. A shop assignment will show up here.
                 </p>
               ) : (
-                <ul>
-                  {notices.slice(0, 6).map((notice) => (
-                    <li key={notice.id} className="border-t border-line px-4 py-3 first:border-t-0">
-                      <p
-                        className={`text-sm ${notice.isRead ? 'text-ink2' : 'font-semibold text-ink'}`}
+                <>
+                  <div className="flex flex-wrap gap-2 px-3 py-3">
+                    {noticeCounts(notices).map((item) => (
+                      <span
+                        key={item.label}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${item.row}`}
                       >
-                        {notice.title}
-                      </p>
-                      <p className="text-sm text-ink2">{notice.body}</p>
-                      <p className="mt-1 text-xs text-ink3">
-                        {formatRelativeTime(notice.createdAt)}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                        {item.label} {item.count}
+                      </span>
+                    ))}
+                  </div>
+                  <ul>
+                    {notices.slice(0, 6).map((notice) => {
+                      const tone = noticeTone(notice);
+                      return (
+                        <li key={notice.id} className={`border-l-4 border-t px-4 py-3 ${tone.row}`}>
+                          <p className="text-xs font-medium uppercase tracking-wide">
+                            {tone.label}
+                          </p>
+                          <p
+                            className={`text-sm text-ink ${notice.isRead ? 'font-medium' : 'font-semibold'}`}
+                          >
+                            {notice.title}
+                          </p>
+                          <p className="text-sm text-ink2">{notice.body}</p>
+                          <p className="mt-1 text-xs text-ink3">
+                            {formatRelativeTime(notice.createdAt)}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
               )
             ) : (
               <p className="px-4 py-6 text-sm text-ink2">This account cannot open notifications.</p>
@@ -230,6 +247,59 @@ export function LabDashboard(): React.ReactElement {
           </aside>
         </div>
       ) : null}
+      {adding && token ? (
+        <AddLabJobDialog
+          token={token}
+          clients={clients}
+          initialClientId=""
+          onClose={() => setAdding(false)}
+          onCreated={(_reference, createdInvoice) => {
+            setAdding(false);
+            setInvoice(createdInvoice);
+            setRefreshKey((current) => current + 1);
+          }}
+        />
+      ) : null}
+      {invoice && token ? (
+        <WalkInInvoice token={token} bill={invoice} onClose={() => setInvoice(null)} />
+      ) : null}
     </section>
   );
+}
+
+const NOTICE_TONES = {
+  JOBS: { label: 'New jobs', row: 'border-action bg-action-soft text-action' },
+  REQUESTS: { label: 'Shop requests', row: 'border-danger bg-danger-soft text-danger' },
+  UPDATES: { label: 'Job updates', row: 'border-teal bg-teal-soft text-teal' },
+  CONNECTIONS: { label: 'Connections', row: 'border-navy bg-[var(--ow-navy-soft)] text-navy' },
+  STOCK: { label: 'Low stock', row: 'border-amber bg-amber-soft text-amber' },
+} as const;
+
+function noticeCounts(
+  notices: readonly RetailerAlert[],
+): Array<{ label: string; row: string; count: number }> {
+  const totals = new Map<string, { label: string; row: string; count: number }>();
+  for (const notice of notices) {
+    const tone = noticeTone(notice);
+    const current = totals.get(tone.label) ?? { label: tone.label, row: tone.row, count: 0 };
+    current.count += 1;
+    totals.set(tone.label, current);
+  }
+  return [...totals.values()];
+}
+
+function noticeTone(alert: RetailerAlert): { label: string; row: string } {
+  if (alert.type === 'LOW_STOCK') {
+    return NOTICE_TONES.STOCK;
+  }
+  if (alert.type === 'CONNECTION_REQUEST') {
+    return NOTICE_TONES.CONNECTIONS;
+  }
+  if (alert.title === 'New job assigned') {
+    return NOTICE_TONES.JOBS;
+  }
+  if (/request/i.test(alert.title)) {
+    return NOTICE_TONES.REQUESTS;
+  }
+  return NOTICE_TONES.UPDATES;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { Glasses } from 'lucide-react';
+import { Glasses, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -30,12 +30,19 @@ export function WholesalerSidebar({
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col bg-navy text-white md:flex lg:w-[200px]">
-      <div className="flex items-center gap-2 px-3 py-4 lg:px-4">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/10">
-          <Glasses size={16} aria-hidden="true" />
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-4 lg:px-4">
+        <span
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-action text-white"
+          aria-hidden="true"
+        >
+          <Glasses size={18} />
         </span>
         <span className="hidden min-w-0 lg:block">
-          <span className="block truncate text-md font-semibold">OptiWorld</span>
+          {orgName ? (
+            <span className="block truncate text-md font-semibold text-white">{orgName}</span>
+          ) : (
+            <span className="block h-4 w-28 rounded bg-white/10" />
+          )}
           <span className="block text-xs uppercase tracking-wide text-white/60">Wholesaler</span>
         </span>
       </div>
@@ -73,16 +80,39 @@ export function WholesalerSidebar({
           </div>
         ))}
       </nav>
-      <div className="border-t border-white/10 p-2 lg:p-3">
+      <div className="border-t border-white/10 px-2 py-3 lg:px-3">
         <div className="flex items-center gap-2">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/10 text-xs font-medium">
-            {initials(userName)}
-          </span>
-          <span className="hidden min-w-0 flex-1 lg:block">
-            <span className="block truncate text-sm font-medium">{orgName || 'Wholesaler'}</span>
-            <span className="block truncate text-xs text-white/60">{roleLabel(role)}</span>
-          </span>
+          <Link
+            href="/wholesaler/profile"
+            aria-label="Open profile"
+            title="Profile"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 hover:bg-white/[0.08]"
+          >
+            <span
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/10 text-xs font-medium text-white"
+              aria-hidden="true"
+            >
+              {initials(userName)}
+            </span>
+            <span className="hidden min-w-0 flex-1 lg:block">
+              <span className="block truncate text-sm font-medium text-white">{userName}</span>
+              <span className="block truncate text-xs text-white/60">{roleLabel(role)}</span>
+            </span>
+          </Link>
+          <Link
+            href="/wholesaler/profile"
+            aria-label="Profile"
+            title="Profile"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/70 hover:bg-white/[0.08] hover:text-white"
+          >
+            <Settings size={16} aria-hidden="true" />
+          </Link>
         </div>
+      </div>
+      <div className="border-t border-white/10 p-2 lg:p-3">
+        <p className="hidden px-2 text-center text-[12px] leading-4 text-white/60 lg:block">
+          Powered by OptiWorld
+        </p>
         <SignOutButton variant="sidebar" />
       </div>
     </aside>

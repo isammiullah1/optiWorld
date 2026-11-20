@@ -21,6 +21,11 @@
   --ow-line: #e4e8f0;
   --ow-bg: #f5f7fb;
   --ow-white: #ffffff;
+  --ow-navy-soft: #d9e4ec;
+  --ow-work: #2c6b45;
+  --ow-work-soft: #e3f2e8;
+  --ow-sent: #5a4336;
+  --ow-sent-soft: #f6efe8;
 }
 
 body {
@@ -32,6 +37,23 @@ body {
 
 .ow-nav-active {
   background-color: color-mix(in srgb, var(--ow-blue) 22%, transparent);
+}
+
+@media print {
+  body:has(.ow-print-root) * {
+    visibility: hidden;
+  }
+  body:has(.ow-print-root) .ow-print-root,
+  body:has(.ow-print-root) .ow-print-root * {
+    visibility: visible;
+  }
+  body:has(.ow-print-root) .ow-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: white;
+  }
 }
 
 @layer base {

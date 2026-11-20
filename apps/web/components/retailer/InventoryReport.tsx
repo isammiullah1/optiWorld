@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { formatRupee, formatShortDate } from './dashboard-format';
+import { InventorySections } from './InventorySections';
 import { defaultReportRange, downloadReport, loadInventoryReport } from './reports-api';
 
 const PAGE_SIZES = [10, 20, 30, 40] as const;
@@ -72,7 +73,11 @@ type Movement = (typeof MOVEMENT_FILTERS)[number]['id'];
 type ReportRow = InventoryReportData['rows'][number];
 type DetailKind = 'SOLD' | 'MOVED' | 'LOW';
 
-export function InventoryReport(): React.ReactElement {
+export function InventoryReport({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}): React.ReactElement | null {
   const { data: session, status } = useSession();
   const token = session?.accessToken;
   const isOwner = session?.user.role === 'OWNER';
@@ -89,13 +94,14 @@ export function InventoryReport(): React.ReactElement {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(10);
   const [detail, setDetail] = useState<DetailKind | null>(null);
+  const [quietDays, setQuietDays] = useState(60);
 
   useEffect(() => {
     if (!token || !isOwner || from > to) {
       return;
     }
     setReport(null);
-    void loadInventoryReport(token, from, to)
+    void loadInventoryReport(token, from, to, quietDays)
       .then((next) => {
         setReport(next);
         setError(null);
@@ -105,7 +111,7 @@ export function InventoryReport(): React.ReactElement {
           caught instanceof Error ? caught.message : 'The inventory report could not be loaded',
         );
       });
-  }, [from, to, isOwner, token]);
+  }, [from, to, isOwner, quietDays, token]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -162,13 +168,20 @@ export function InventoryReport(): React.ReactElement {
   }, [query, movement, pageSize, from, to]);
 
   if (status !== 'loading' && !isOwner) {
+    if (embedded) {
+      return null;
+    }
     return <p className="text-sm text-ink2">Stock movement is visible to the owner.</p>;
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-4" id="movement">
       <div>
-        <h1 className="text-xl font-semibold text-ink">Inventory movement</h1>
+        {embedded ? (
+          <h2 className="text-lg font-semibold text-ink">Movement</h2>
+        ) : (
+          <h1 className="text-xl font-semibold text-ink">Inventory movement</h1>
+        )}
         <p className="text-sm text-ink2">
           Items sold, stock added, and low-stock events for this shop.
         </p>
@@ -219,9 +232,9 @@ export function InventoryReport(): React.ReactElement {
           {detail ? (
             <MovementDetail report={report} kind={detail} onClose={() => setDetail(null)} />
           ) : null}
-          <section className="overflow-hidden rounded-xl border border-line bg-white">
+          <section className="overflow-hidden rounded-xl border-2 border-action bg-action-soft">
             <form
-              className="grid gap-2 border-b border-action-soft bg-canvas px-3 py-2"
+              className="grid gap-2 border-b border-action bg-white px-3 py-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (draftFrom && draftTo && draftFrom <= draftTo) {
@@ -258,7 +271,7 @@ export function InventoryReport(): React.ReactElement {
                       return;
                     }
                     setExporting(true);
-                    void downloadReport(token, 'INVENTORY', from, to, 'xlsx')
+                    void downloadReport(token, 'INVENTORY', from, to, 'xlsx', quietDays)
                       .catch((caught: unknown) => {
                         setError(
                           caught instanceof Error
@@ -280,7 +293,7 @@ export function InventoryReport(): React.ReactElement {
                       return;
                     }
                     setExporting(true);
-                    void downloadReport(token, 'INVENTORY', from, to, 'pdf')
+                    void downloadReport(token, 'INVENTORY', from, to, 'pdf', quietDays)
                       .catch((caught: unknown) => {
                         setError(
                           caught instanceof Error
@@ -351,7 +364,7 @@ export function InventoryReport(): React.ReactElement {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] border-collapse text-left">
                   <thead>
-                    <tr className="bg-navy text-left">
+                    <tr className="bg-[color-mix(in_srgb,var(--ow-blue)_22%,white)] text-left">
                       {[
                         'Product',
                         'Opening',
@@ -362,7 +375,7 @@ export function InventoryReport(): React.ReactElement {
                       ].map((heading) => (
                         <th
                           key={heading}
-                          className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-white"
+                          className="border border-white/70 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink"
                         >
                           {heading}
                         </th>
@@ -370,8 +383,13 @@ export function InventoryReport(): React.ReactElement {
                     </tr>
                   </thead>
                   <tbody>
-                    {visible.map((row) => (
-                      <MovementRow key={row.batchId} row={row} showProfit={movement === 'PROFIT'} />
+                    {visible.map((row, index) => (
+                      <MovementRow
+                        key={row.batchId}
+                        row={row}
+                        showProfit={movement === 'PROFIT'}
+                        shaded={index % 2 === 1}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -421,6 +439,7 @@ export function InventoryReport(): React.ReactElement {
               </div>
             </div>
           </section>
+          <InventorySections report={report} quietDays={quietDays} onQuietDays={setQuietDays} />
         </>
       ) : null}
     </div>
@@ -430,12 +449,18 @@ export function InventoryReport(): React.ReactElement {
 function MovementRow({
   row,
   showProfit,
+  shaded,
 }: {
   row: ReportRow;
   showProfit: boolean;
+  shaded: boolean;
 }): React.ReactElement {
   return (
-    <tr className="border-b border-line last:border-0 hover:bg-canvas">
+    <tr
+      className={`border-b border-line last:border-0 hover:bg-white ${
+        shaded ? 'bg-[color-mix(in_srgb,var(--ow-blue)_8%,white)]' : 'bg-white'
+      }`}
+    >
       <td className="px-3 py-2">
         <Link
           href={`/retailer/inventory/${row.batchId}`}
@@ -460,14 +485,10 @@ function MovementRow({
   );
 }
 
-const TEAL_CARD =
-  'border-teal bg-[linear-gradient(165deg,color-mix(in_srgb,var(--ow-teal)_18%,white)_0%,white_52%,var(--ow-teal-soft)_100%)]';
-const NAVY_CARD =
-  'border-navy bg-[linear-gradient(165deg,color-mix(in_srgb,var(--ow-navy)_10%,white)_0%,white_55%,var(--ow-bg)_100%)]';
-const BLUE_CARD =
-  'border-action bg-[linear-gradient(165deg,color-mix(in_srgb,var(--ow-blue)_22%,white)_0%,white_50%,var(--ow-blue-soft)_100%)]';
-const AMBER_CARD =
-  'border-amber bg-[linear-gradient(165deg,color-mix(in_srgb,var(--ow-amber)_22%,white)_0%,white_50%,var(--ow-amber-soft)_100%)]';
+const TEAL_CARD = 'border-teal bg-[color-mix(in_srgb,var(--ow-teal)_20%,white)]';
+const NAVY_CARD = 'border-navy bg-[color-mix(in_srgb,var(--ow-navy)_10%,white)]';
+const BLUE_CARD = 'border-action bg-action-soft';
+const AMBER_CARD = 'border-amber bg-amber-soft';
 
 function SummaryCard({
   label,

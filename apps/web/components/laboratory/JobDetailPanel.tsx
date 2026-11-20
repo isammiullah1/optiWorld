@@ -12,6 +12,13 @@ import {
 } from '@optiworld/shared';
 import { useState } from 'react';
 
+export const REJECT_JOB_MESSAGES = [
+  'We cannot take this job right now.',
+  'The prescription is incomplete.',
+  'This lens or frame is not available.',
+  'Please send this job to another laboratory.',
+] as const;
+
 import { cancellationLine, RecordTrail } from '@/components/RecordTrail';
 import { PrescriptionFields } from '@/components/retailer/PrescriptionFields';
 import { JobStatusBadge, jobStatusLabel } from '@/components/retailer/LabJobStatus';
@@ -51,6 +58,7 @@ export function JobDetailPanel({
 }): React.ReactElement {
   const [notes, setNotes] = useState(job.notes ?? '');
   const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState<string | null>(null);
   const [editingRx, setEditingRx] = useState(false);
   const [rxDraft, setRxDraft] = useState<PrescriptionReading>(() => readingFrom(job));
   const [rxIssues, setRxIssues] = useState<Partial<Record<PrescriptionIssueKey, string>>>({});
@@ -313,24 +321,58 @@ export function JobDetailPanel({
             >
               Accept job
             </button>
-            <label className="grid gap-1 text-sm text-ink2">
-              Message to the shop
-              <textarea
-                value={rejectReason}
-                onChange={(event) => setRejectReason(event.target.value)}
-                rows={3}
-                maxLength={500}
-                className="rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-action focus:outline-none"
-              />
-            </label>
-            <button
-              type="button"
-              disabled={busy || rejectReason.trim().length === 0}
-              className="min-h-11 rounded-lg border border-danger px-4 text-sm text-danger disabled:opacity-50"
-              onClick={() => onReject(rejectReason.trim())}
-            >
-              Reject job
-            </button>
+            {job.retailerName ? (
+              <label className="grid gap-2 text-sm text-ink2">
+                Message to the shop
+                <span className="flex flex-wrap gap-2">
+                  {REJECT_JOB_MESSAGES.map((message) => (
+                    <button
+                      key={message}
+                      type="button"
+                      className={`min-h-11 rounded-full border px-3 text-left text-xs ${rejectReason === message ? 'border-action bg-action-soft text-action' : 'border-line text-ink2'}`}
+                      onClick={() => {
+                        setRejectReason(message);
+                        setRejectError(null);
+                      }}
+                    >
+                      {message}
+                    </button>
+                  ))}
+                </span>
+                <textarea
+                  value={rejectReason}
+                  onChange={(event) => {
+                    setRejectReason(event.target.value);
+                    setRejectError(null);
+                  }}
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Choose a message or write one"
+                  className="rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-action focus:outline-none"
+                />
+                {rejectError ? (
+                  <span role="alert" className="text-sm text-danger">
+                    {rejectError}
+                  </span>
+                ) : null}
+              </label>
+            ) : null}
+            {job.retailerName ? (
+              <button
+                type="button"
+                disabled={busy}
+                className="min-h-11 rounded-lg border border-danger px-4 text-sm text-danger disabled:opacity-50"
+                onClick={() => {
+                  if (rejectReason.trim().length === 0) {
+                    setRejectError('Choose a message or write one.');
+                    return;
+                  }
+                  onReject(rejectReason.trim());
+                }}
+              >
+                Reject job
+              </button>
+            ) : null}
           </>
         ) : null}
         {job.status === 'CONFIRMED' ? (
@@ -343,18 +385,22 @@ export function JobDetailPanel({
             Remind the shop about material
           </button>
         ) : null}
-        <button
-          type="button"
-          disabled={busy || !next}
-          className="min-h-11 rounded-lg bg-action px-4 text-sm font-medium text-white disabled:opacity-50"
-          onClick={onAdvance}
-        >
-          {next
-            ? `Move to ${jobStatusLabel(next)}`
-            : job.status === 'SUBMITTED'
-              ? 'Waiting for a decision'
-              : 'Completed'}
-        </button>
+        {job.status === 'REJECTED' || job.status === 'CANCELLED' ? (
+          <p className="text-sm text-ink2">This job is closed and cannot be reopened.</p>
+        ) : (
+          <button
+            type="button"
+            disabled={busy || !next}
+            className="min-h-11 rounded-lg bg-action px-4 text-sm font-medium text-white disabled:opacity-50"
+            onClick={onAdvance}
+          >
+            {next
+              ? `Move to ${jobStatusLabel(next)}`
+              : job.status === 'SUBMITTED'
+                ? 'Waiting for a decision'
+                : 'Completed'}
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}

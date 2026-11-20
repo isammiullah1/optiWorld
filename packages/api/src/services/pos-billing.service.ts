@@ -18,6 +18,7 @@ import {
 
 import { billLogoPath } from '../lib/bill-logo-store.js';
 import { AppError } from '../lib/errors.js';
+import { openLabBill } from './lab-bills.service.js';
 import { deliveryChargeCents, recordInvoiceDelivery } from './deliveries.service.js';
 import { invoiceActivity } from './record-activity.js';
 import { persistLinePrescription } from './customers.service.js';
@@ -357,6 +358,7 @@ export async function createPosInvoice(
           prescriptionRequired: batch?.prescriptionRequired ?? null,
           reading: linePrescriptions[index] ?? null,
           labOrgId: item.prescription?.labOrgId,
+          serviceIds: item.prescription?.labServiceIds,
         };
       }),
     });
@@ -597,13 +599,17 @@ async function allocateLabReference(tx: Pick<SaleTx, 'labJob'>): Promise<string>
 }
 
 export async function attachInvoiceLabJob(
-  tx: Pick<SaleTx, 'labClient' | 'labJob' | 'organisation' | 'alert'>,
+  tx: Pick<
+    SaleTx,
+    'labClient' | 'labJob' | 'organisation' | 'alert' | 'labService' | 'labBill' | 'labBillLine'
+  >,
   input: {
     orgId: string;
     userId: string;
     invoiceId: string;
     customerName: string;
     prescription: LabPrescription;
+    serviceIds?: readonly string[];
   },
 ): Promise<string | null> {
   const link = await tx.labClient.findFirst({
@@ -634,6 +640,14 @@ export async function attachInvoiceLabJob(
           specialInstructions: blank(input.prescription.specialInstructions),
           notes: blank(input.prescription.notes),
         },
+      });
+      await openLabBill(tx, {
+        labOrgId: input.prescription.labOrgId,
+        retailerOrgId: input.orgId,
+        labClientId: null,
+        labJobId: taken.id,
+        retailerInvoiceId: input.invoiceId,
+        serviceIds: input.serviceIds,
       });
       return reference;
     }
@@ -671,6 +685,14 @@ export async function attachInvoiceLabJob(
       shopName: shop?.name ?? 'A connected shop',
     }),
   });
+  await openLabBill(tx, {
+    labOrgId: input.prescription.labOrgId,
+    retailerOrgId: input.orgId,
+    labClientId: null,
+    labJobId: created.id,
+    retailerInvoiceId: input.invoiceId,
+    serviceIds: input.serviceIds,
+  });
   return reference;
 }
 
@@ -691,7 +713,10 @@ type LineReading = {
 };
 
 export async function attachLineLabJobs(
-  tx: Pick<SaleTx, 'labClient' | 'labJob' | 'organisation' | 'alert'>,
+  tx: Pick<
+    SaleTx,
+    'labClient' | 'labJob' | 'organisation' | 'alert' | 'labService' | 'labBill' | 'labBillLine'
+  >,
   input: {
     orgId: string;
     userId: string;
@@ -705,6 +730,7 @@ export async function attachLineLabJobs(
       prescriptionRequired: boolean | null;
       reading: LineReading | null;
       labOrgId?: string;
+      serviceIds?: readonly string[];
     }>;
   },
 ): Promise<boolean> {
@@ -732,6 +758,7 @@ export async function attachLineLabJobs(
         notes: line.reading.notes,
         specialInstructions: line.productName,
       },
+      serviceIds: line.serviceIds,
     });
     if (!reference) {
       missingLab = true;

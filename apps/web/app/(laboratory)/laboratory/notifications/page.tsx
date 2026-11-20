@@ -1,5 +1,9 @@
 import { LabNotifications } from '@/components/laboratory/LabNotifications';
 
-export default function LaboratoryNotificationsPage(): React.ReactElement {
-  return <LabNotifications />;
+export default function LaboratoryNotificationsPage({
+  searchParams,
+}: {
+  searchParams?: { category?: string };
+}): React.ReactElement {
+  return <LabNotifications category={searchParams?.category} />;
 }

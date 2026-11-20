@@ -1,6 +1,5 @@
 import type { RetailerFeature } from '@optiworld/shared';
 import {
-  ArrowLeftRight,
   BarChart3,
   Bell,
   BookOpen,
@@ -46,14 +45,7 @@ export const RETAILER_SECTIONS: readonly {
         feature: 'billing',
       },
       { href: '/retailer/reports/sales', label: 'Sales', icon: BarChart3, feature: 'reports' },
-      { href: '/retailer/customers', label: 'Customers', icon: Users, feature: 'customers' },
       { href: '/retailer/inventory', label: 'Inventory', icon: Package, feature: 'inventory' },
-      {
-        href: '/retailer/reports/inventory',
-        label: 'Inventory Movement',
-        icon: ArrowLeftRight,
-        ownerOnly: true,
-      },
       { href: '/retailer/bill-pad', label: 'Bill pad', icon: ScrollText, feature: 'billPad' },
       { href: '/retailer/ledger', label: 'Ledger', icon: BookOpen, ownerOnly: true },
     ],
@@ -77,6 +69,12 @@ export const RETAILER_SECTIONS: readonly {
         badge: 'jobs',
         feature: 'labJobs',
       },
+      {
+        href: '/retailer/lab-bills',
+        label: 'Lab bills',
+        icon: Receipt,
+        feature: 'labJobs',
+      },
       { href: '/retailer/deliveries', label: 'Deliveries', icon: Truck, feature: 'labJobs' },
       { href: '/retailer/alerts', label: 'Alerts', icon: Bell, badge: 'alerts', feature: 'alerts' },
     ],
@@ -84,6 +82,13 @@ export const RETAILER_SECTIONS: readonly {
   {
     label: 'Reports',
     items: [
+      { href: '/retailer/customers', label: 'Customers', icon: Users, feature: 'customers' },
+      {
+        href: '/retailer/reports/customers',
+        label: 'Customer report',
+        icon: Users,
+        feature: 'reports',
+      },
       { href: '/retailer/reports/aging', label: 'Aging Report', icon: Clock, ownerOnly: true },
     ],
   },

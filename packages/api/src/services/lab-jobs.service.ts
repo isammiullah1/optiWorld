@@ -23,6 +23,7 @@ import {
 import type { OrgCard } from '../lib/connection-profile.js';
 import { z } from 'zod';
 
+import { openLabBill } from './lab-bills.service.js';
 import { openShopRequest, requestReceivedCancellation } from './lab-job-requests.service.js';
 
 import { billLogoPath } from '../lib/bill-logo-store.js';
@@ -332,6 +333,14 @@ export async function createLabJob(
         shopName: shop?.name ?? 'A connected shop',
       }),
     });
+    await openLabBill(tx, {
+      labOrgId: input.labOrgId,
+      retailerOrgId,
+      labClientId: null,
+      labJobId: created.id,
+      retailerInvoiceId: null,
+      serviceIds: input.serviceIds,
+    });
     return created;
   });
 }
@@ -434,7 +443,10 @@ export async function createDirectLabJob(
         patientPhone: phone.length > 0 ? phone : null,
         prescription,
         ...(frameDetails ? { frameDetails } : {}),
-        lensDetails: { name: input.lensName, type: input.lensType },
+        lensDetails: {
+          name: input.lensName?.trim() ?? '',
+          type: input.lensType?.trim() ?? '',
+        },
         specialInstructions: blankToNull(input.specialInstructions),
         notes: blankToNull(input.notes),
         status: 'SUBMITTED',
@@ -475,6 +487,14 @@ export async function createDirectLabJob(
       },
     });
     await refreshDeliveryForInvoice(tx, invoiceId);
+    await openLabBill(tx, {
+      labOrgId: input.labOrgId,
+      retailerOrgId,
+      labClientId: null,
+      labJobId: createdId,
+      retailerInvoiceId: invoiceId,
+      serviceIds: input.serviceIds,
+    });
     const message =
       invoiceNumber === null
         ? `Job ${reference} was sent to the laboratory. It is not on a sale.`
@@ -1201,7 +1221,7 @@ function boardFilter(
   status: LabJobListQuery['status'],
 ): {
   completedAt?: null | { not: null };
-  status?: LabJobListQuery['status'] | { not: 'CANCELLED' } | { in: readonly string[] };
+  status?: LabJobListQuery['status'] | { not: 'CANCELLED' } | { in: JobStatus[] };
   OR?: Array<{ completedAt: { not: null } } | { status: 'CANCELLED' }>;
 } {
   const matched = status ? statusMatch(status) : undefined;
@@ -1225,9 +1245,9 @@ function boardFilter(
 
 function statusMatch(
   status: NonNullable<LabJobListQuery['status']>,
-): NonNullable<LabJobListQuery['status']> | { in: readonly string[] } {
+): NonNullable<LabJobListQuery['status']> | { in: JobStatus[] } {
   if (isProcessingStatus(status)) {
-    return { in: PROCESSING_JOB_STATUSES };
+    return { in: [...PROCESSING_JOB_STATUSES] };
   }
   return status;
 }

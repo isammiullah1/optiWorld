@@ -9,6 +9,7 @@ import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 
 import { CustomerPhoneField } from '@/components/retailer/CustomerPhoneField';
+import { loadRetailerSettings, saveRetailerSettings } from './inventory-api';
 import { loadRetailerProfile, saveRetailerShopProfile } from './retailer-account-api';
 
 export function ReminderSettings(): React.ReactElement {

@@ -1,3 +1,5 @@
+import { reportTone } from './report-tones.js';
+
 const PORTRAIT = {
   width: 612,
   height: 792,
@@ -183,6 +185,7 @@ export function renderTablePdf(input: {
         fontSize,
         false,
         rowIndex % 2 === 1,
+        { headers: table.columns, values: row },
       );
       y -= heightOfRow;
     });
@@ -300,12 +303,33 @@ function paintRow(
   fontSize: number,
   header: boolean,
   zebra = false,
+  source?: { headers: readonly string[]; values: readonly string[] },
 ): void {
+  const valueIndex =
+    source?.headers.findIndex((column) => column.trim().toLowerCase() === 'value') ?? -1;
+  const amountText = source && valueIndex >= 0 ? (source.values[valueIndex] ?? '') : '';
+  const rowLabel = source?.values[0] ?? '';
   let cursor = x;
   lines.forEach((cell, index) => {
     const width = widths[index] ?? 0;
-    const fill = header ? '0 0.192 0.325' : zebra ? '0.961 0.969 0.984' : '1 1 1';
-    const color = header ? '1 1 1' : '0.102 0.118 0.180';
+    const tone =
+      source && !header
+        ? reportTone({
+            column: source.headers[index] ?? '',
+            value: source.values[index] ?? '',
+            rowLabel,
+            headers: source.headers,
+            amountText: amountText || (source.values[index] ?? ''),
+          })
+        : null;
+    const fill = header
+      ? '0 0.192 0.325'
+      : tone
+        ? tone.pdfFill
+        : zebra
+          ? '0.961 0.969 0.984'
+          : '1 1 1';
+    const color = header ? '1 1 1' : tone ? tone.pdfFont : '0.102 0.118 0.180';
     page.push(`${fill} rg ${cursor} ${y} ${width} ${height} re f`);
     page.push(`0.541 0.573 0.643 RG 0.8 w ${cursor} ${y} ${width} ${height} re S`);
     page.push('BT', `/F1 ${fontSize} Tf`, `${color} rg`);

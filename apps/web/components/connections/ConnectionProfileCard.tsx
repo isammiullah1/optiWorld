@@ -31,6 +31,59 @@ const STATUS_CLASS: Record<ConnectionStatus, string> = {
   REJECTED: 'bg-canvas text-ink3',
 };
 
+type ProfileTone = 'teal' | 'amber' | 'rose' | 'navy';
+
+const PROFILE_TONE: Record<
+  ProfileTone,
+  { shell: string; header: string; text: string; close: string; avatar: string; chip: string }
+> = {
+  teal: {
+    shell: 'border-2 border-teal bg-[color-mix(in_srgb,var(--ow-teal)_24%,white)]',
+    header: 'bg-teal',
+    text: 'text-white',
+    close: 'text-white hover:bg-white/15',
+    avatar: 'bg-white text-teal',
+    chip: 'bg-white/20 text-white',
+  },
+  amber: {
+    shell: 'border-2 border-amber bg-amber-soft',
+    header: 'bg-amber',
+    text: 'text-ink',
+    close: 'text-ink hover:bg-black/10',
+    avatar: 'bg-white text-amber',
+    chip: 'bg-white/70 text-ink',
+  },
+  rose: {
+    shell: 'border-2 border-danger bg-danger-soft',
+    header: 'bg-danger',
+    text: 'text-white',
+    close: 'text-white hover:bg-white/15',
+    avatar: 'bg-white text-danger',
+    chip: 'bg-white/20 text-white',
+  },
+  navy: {
+    shell: 'border-2 border-navy bg-[color-mix(in_srgb,var(--ow-navy)_14%,white)]',
+    header: 'bg-navy',
+    text: 'text-white',
+    close: 'text-white hover:bg-white/15',
+    avatar: 'bg-white text-navy',
+    chip: 'bg-white/20 text-white',
+  },
+};
+
+function profileTone(status: ConnectionStatus | null): ProfileTone {
+  if (status === 'APPROVED') {
+    return 'teal';
+  }
+  if (status === 'PENDING') {
+    return 'amber';
+  }
+  if (status === 'REJECTED') {
+    return 'rose';
+  }
+  return 'navy';
+}
+
 export function canSendRequest(status: ConnectionStatus | null): boolean {
   return status === null || status === 'REJECTED';
 }
@@ -76,6 +129,8 @@ export function ConnectionProfileCard({
       : []),
   ];
 
+  const tone = PROFILE_TONE[profileTone(profile.status)];
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center"
@@ -91,55 +146,66 @@ export function ConnectionProfileCard({
         role="dialog"
         aria-modal="true"
         aria-labelledby="connection-profile-title"
-        className="relative grid w-full max-w-md gap-4 rounded-t-xl border border-line bg-white p-4 sm:rounded-xl"
+        className={`relative grid w-full max-w-md overflow-hidden rounded-t-xl sm:rounded-xl ${tone.shell}`}
       >
-        <div className="flex items-start gap-3">
+        <div className={`flex items-start gap-3 px-4 py-3 ${tone.header}`}>
           <span
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-navy text-sm font-semibold text-white"
+            className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-sm font-semibold ${tone.avatar}`}
             aria-hidden="true"
           >
             {initials(profile.name)}
           </span>
           <div className="min-w-0 flex-1">
-            <h2 id="connection-profile-title" className="truncate text-xl font-semibold text-ink">
+            <h2
+              id="connection-profile-title"
+              className={`truncate text-xl font-semibold ${tone.text}`}
+            >
               {profile.name}
             </h2>
-            {profile.status ? (
-              <span
-                className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[profile.status]}`}
-              >
-                {statusLabel ?? STATUS_LABEL[profile.status]}
-              </span>
-            ) : (
-              <p className="mt-1 text-xs text-ink3">Not connected</p>
-            )}
+            <span
+              className={`mt-1 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+                profile.status === 'APPROVED' ? 'bg-white text-ink' : tone.chip
+              }`}
+            >
+              {profile.status === 'APPROVED' ? <ConnectionLight /> : null}
+              {profile.status ? (statusLabel ?? STATUS_LABEL[profile.status]) : 'Not connected'}
+            </span>
           </div>
           <button
             type="button"
             aria-label="Close"
-            className="grid h-11 w-11 place-items-center rounded-lg text-ink3 hover:bg-canvas"
+            className={`grid h-11 w-11 place-items-center rounded-lg ${tone.close}`}
             onClick={onClose}
           >
             <X size={16} aria-hidden="true" />
           </button>
         </div>
-        <dl className="grid gap-2 rounded-xl border border-line bg-canvas p-3">
-          {details.map((detail) => (
-            <div key={detail.label} className="grid grid-cols-[88px_1fr] gap-2">
-              <dt className="text-sm text-ink3">{detail.label}</dt>
-              <dd className="whitespace-pre-wrap text-sm text-ink">
-                {detail.value?.trim() ? detail.value : '—'}
-              </dd>
-            </div>
-          ))}
-        </dl>
-        {error ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-        {onSend ? <SendRequestButton busy={busy} onClick={onSend} /> : null}
-        {footer}
+        <div className="grid gap-3 p-4">
+          <dl className="grid grid-cols-2 gap-2">
+            {details.map((detail) => (
+              <div
+                key={detail.label}
+                className={`grid gap-0.5 rounded-lg border border-white bg-white px-3 py-1.5 ${
+                  detail.label === 'Address' || detail.label === 'About us' ? 'col-span-2' : ''
+                }`}
+              >
+                <dt className="text-xs font-medium uppercase tracking-wide text-ink3">
+                  {detail.label}
+                </dt>
+                <dd className="whitespace-pre-wrap text-sm text-ink">
+                  {detail.value?.trim() ? detail.value : '—'}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {error ? (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
+          {onSend ? <SendRequestButton busy={busy} onClick={onSend} /> : null}
+          {footer}
+        </div>
       </div>
     </div>
   );
@@ -369,6 +435,15 @@ export function SearchResultList({
         />
       ) : null}
     </>
+  );
+}
+
+function ConnectionLight(): React.ReactElement {
+  return (
+    <span className="relative inline-flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#22C55E] opacity-70" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#16A34A] shadow-[0_0_6px_2px_rgba(34,197,94,0.9)]" />
+    </span>
   );
 }
 

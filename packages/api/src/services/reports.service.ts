@@ -13,8 +13,25 @@ import {
 import { AppError } from '../lib/errors.js';
 import { styleSheet } from '../lib/sheet-table.js';
 import { pdfWhen, renderTablePdf } from '../lib/text-pdf.js';
+import { getCustomerReport } from './customer-report.js';
 import { getAgingReport } from './ledger.service.js';
+import { labExpenseByInvoice } from './lab-bills.service.js';
 import { invoiceActivityMap } from './record-activity.js';
+import {
+  addCustomerSheets,
+  addInventorySheets,
+  addSalesSheets,
+  customerPdfTables,
+  inventoryPdfTables,
+  salesPdfTables,
+} from './report-sheets.js';
+import {
+  salesSections,
+  type ReturnSectionInput,
+  type SaleSectionInput,
+} from './sales-breakdown.js';
+
+export { getCustomerReport };
 
 const DAY_MS = 86_400_000;
 const MAX_DAYS = 366;
@@ -54,11 +71,20 @@ export async function getSalesReport(
       status: true,
       paymentType: true,
       total: true,
+      discount: true,
       issuedAt: true,
       customer: { select: { id: true, name: true, gender: true } },
       payments: { select: { amount: true } },
       cancelledAt: true,
-      items: { select: { productName: true, quantity: true, unitPrice: true, prescription: true } },
+      items: {
+        select: {
+          productName: true,
+          quantity: true,
+          unitPrice: true,
+          prescription: true,
+          inventoryBatch: { select: { costPrice: true, category: true } },
+        },
+      },
     },
     orderBy: { issuedAt: 'desc' },
   });
@@ -72,16 +98,37 @@ export async function getSalesReport(
       ]),
     ),
   );
+  const removals = await loadRemovalNotes(
+    orgId,
+    invoices.map((invoice) => invoice.id),
+  );
 
   let revenue = 0;
+  let costIncurred = 0;
   let cash = 0;
   let credit = 0;
+  const owner = auth.role === 'OWNER';
   const byDay = new Map<string, number>();
   const products = new Map<string, { quantity: number; total: number }>();
+  const sectionBills: SaleSectionInput[] = [];
   for (const day of eachDay(range)) {
     byDay.set(day, 0);
   }
   const activeInvoices = invoices.filter((invoice) => invoice.cancelledAt === null);
+  const activeIds = activeInvoices.map((invoice) => invoice.id);
+  const [labExpense, cashiers, returns] = await Promise.all([
+    owner
+      ? labExpenseByInvoice(activeIds)
+      : Promise.resolve(new Map<string, { issued: number; pending: number }>()),
+    loadCashiers(orgId, activeIds),
+    loadReturns(orgId, range),
+  ]);
+  let labIssued = 0;
+  let labPending = 0;
+  for (const value of labExpense.values()) {
+    labIssued += value.issued;
+    labPending += value.pending;
+  }
   for (const invoice of activeInvoices) {
     const total = cents(invoice.total);
     const paid = invoice.payments.reduce((sum, payment) => sum + cents(payment.amount), 0);
@@ -93,12 +140,49 @@ export async function getSalesReport(
     credit += creditPart;
     const day = invoice.issuedAt.toISOString().slice(0, 10);
     byDay.set(day, (byDay.get(day) ?? 0) + total);
+    let lineCost = 0;
+    let costMissing = false;
+    const lines: SaleSectionInput['lines'] = [];
     for (const item of invoice.items) {
       const current = products.get(item.productName) ?? { quantity: 0, total: 0 };
+      const lineSale = item.quantity * cents(item.unitPrice);
       current.quantity += item.quantity;
-      current.total += item.quantity * cents(item.unitPrice);
+      current.total += lineSale;
       products.set(item.productName, current);
+      const unitCost = item.inventoryBatch ? cents(item.inventoryBatch.costPrice) : 0;
+      const knownCost = unitCost > 0 ? item.quantity * unitCost : null;
+      if (knownCost === null) {
+        costMissing = true;
+      } else if (owner) {
+        lineCost += knownCost;
+        costIncurred += knownCost;
+      }
+      const category = item.inventoryBatch?.category.trim() ?? '';
+      lines.push({
+        productName: item.productName,
+        category: category.length > 0 ? category : 'Uncategorised',
+        quantity: item.quantity,
+        sale: lineSale,
+        cost: knownCost,
+      });
     }
+    const lab = labExpense.get(invoice.id) ?? { issued: 0, pending: 0 };
+    sectionBills.push({
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      customerName: invoice.customer.name,
+      day,
+      paymentType: invoice.paymentType,
+      total,
+      discount: cents(invoice.discount),
+      cash: cashPart,
+      credit: creditPart,
+      cost: lineCost,
+      lab: lab.issued,
+      costMissing,
+      cashier: cashiers.get(invoice.id) ?? 'Unknown',
+      lines,
+    });
   }
 
   const topProducts = [...products.entries()]
@@ -116,6 +200,35 @@ export async function getSalesReport(
     from: range.from,
     to: range.to,
     revenue: centsToMoney(revenue),
+    costIncurred: owner ? centsToMoney(costIncurred) : null,
+    labExpense: owner ? centsToMoney(labIssued) : null,
+    labExpensePending: owner ? centsToMoney(labPending) : null,
+    profit: owner ? centsToMoney(revenue - costIncurred - labIssued) : null,
+    profitRows: activeInvoices.map((invoice) => {
+      let lineCost = 0;
+      let costMissing = false;
+      for (const item of invoice.items) {
+        const unitCost = item.inventoryBatch ? cents(item.inventoryBatch.costPrice) : 0;
+        if (unitCost > 0) {
+          lineCost += item.quantity * unitCost;
+        } else {
+          costMissing = true;
+        }
+      }
+      const sale = cents(invoice.total);
+      const lab = labExpense.get(invoice.id) ?? { issued: 0, pending: 0 };
+      return {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerName: invoice.customer.name,
+        products: [...new Set(invoice.items.map((item) => item.productName))].join(', '),
+        sale: centsToMoney(sale),
+        cost: owner ? centsToMoney(lineCost) : null,
+        profit: owner ? centsToMoney(sale - lineCost - lab.issued) : null,
+        costMissing: owner ? costMissing : false,
+        labPending: owner ? lab.pending > 0 : false,
+      };
+    }),
     invoiceCount: activeInvoices.length,
     averageValue: centsToMoney(
       activeInvoices.length === 0 ? 0 : Math.round(revenue / activeInvoices.length),
@@ -137,9 +250,13 @@ export async function getSalesReport(
       status: invoice.status,
       hasPrescription: invoice.items.some((item) => item.prescription !== null),
       cancelled: invoice.cancelledAt !== null,
+      removed: removals.has(invoice.id),
+      removalReason: removals.get(invoice.id)?.reason ?? null,
+      removedBy: removals.get(invoice.id)?.by ?? null,
       issuedAt: invoice.issuedAt.toISOString(),
       activity: activity.get(invoice.id) ?? [],
     })),
+    ...salesSections(owner, sectionBills, returns),
   };
 }
 
@@ -147,13 +264,16 @@ export async function getInventoryReport(
   auth: AuthSessionUser,
   from: string,
   to: string,
+  quietDays = 60,
 ): Promise<InventoryReport> {
   if (auth.role !== 'OWNER') {
     throw new AppError(403, 'FORBIDDEN', 'Stock movement is visible to the owner');
   }
   const orgId = requiredRetailerOrgId(auth);
   const range = parseRange(from, to);
-  const [batches, sales, lowStockAlerts] = await Promise.all([
+  const quiet = Math.min(365, Math.max(1, Math.trunc(quietDays)));
+  const quietStart = new Date(range.end.getTime() - quiet * DAY_MS);
+  const [batches, sales, lowStockAlerts, movements, recentSales, lastSales] = await Promise.all([
     prisma.inventoryBatch.findMany({
       where: { orgId, deletedAt: null },
       select: {
@@ -163,6 +283,7 @@ export async function getInventoryReport(
         salePrice: true,
         costPrice: true,
         stockQty: true,
+        lowStockThreshold: true,
         stockMovements: {
           where: { createdAt: { gte: range.start } },
           select: { type: true, quantityChange: true, createdAt: true },
@@ -193,6 +314,30 @@ export async function getInventoryReport(
         relatedEntityType: true,
       },
       orderBy: { createdAt: 'desc' },
+    }),
+    prisma.stockMovement.findMany({
+      where: { orgId, createdAt: { gte: range.start, lt: range.end } },
+      select: {
+        id: true,
+        type: true,
+        quantityChange: true,
+        balanceAfter: true,
+        note: true,
+        createdAt: true,
+        createdByUserId: true,
+        batch: { select: { productName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.stockMovement.findMany({
+      where: { orgId, type: 'SALE', createdAt: { gte: quietStart, lt: range.end } },
+      select: { batchId: true },
+      distinct: ['batchId'],
+    }),
+    prisma.stockMovement.groupBy({
+      by: ['batchId'],
+      where: { orgId, type: 'SALE' },
+      _max: { createdAt: true },
     }),
   ]);
 
@@ -266,6 +411,80 @@ export async function getInventoryReport(
     };
   });
 
+  const userIds = [
+    ...new Set(movements.flatMap((row) => (row.createdByUserId ? [row.createdByUserId] : []))),
+  ];
+  const users =
+    userIds.length === 0
+      ? []
+      : await prisma.user.findMany({
+          where: { id: { in: userIds }, orgId },
+          select: { id: true, name: true },
+        });
+  const userNames = new Map(users.map((user) => [user.id, user.name]));
+  const soldRecently = new Set(recentSales.map((row) => row.batchId));
+  const lastSaleAt = new Map(
+    lastSales.flatMap((row) =>
+      row._max.createdAt ? [[row.batchId, row._max.createdAt] as const] : [],
+    ),
+  );
+  let stockCost = 0;
+  let stockSale = 0;
+  let missingCost = 0;
+  const valuation: InventoryReport['valuation'] = [];
+  const reorder: InventoryReport['reorder'] = [];
+  const deadStock: InventoryReport['deadStock'] = [];
+  for (const batch of batches) {
+    if (batch.stockQty > 0) {
+      const costCents = unitCost.get(batch.id) ?? 0;
+      const lineSale = batch.stockQty * (listedPrice.get(batch.id) ?? 0);
+      stockSale += lineSale;
+      const costMissing = costCents <= 0;
+      if (costMissing) {
+        missingCost += 1;
+      } else {
+        stockCost += batch.stockQty * costCents;
+      }
+      valuation.push({
+        batchId: batch.id,
+        productName: batch.productName,
+        priceCode: batch.priceCode,
+        quantity: batch.stockQty,
+        costValue: costMissing ? null : centsToMoney(batch.stockQty * costCents),
+        saleValue: centsToMoney(lineSale),
+        costMissing,
+      });
+      if (!soldRecently.has(batch.id)) {
+        const last = lastSaleAt.get(batch.id) ?? null;
+        deadStock.push({
+          batchId: batch.id,
+          productName: batch.productName,
+          priceCode: batch.priceCode,
+          quantity: batch.stockQty,
+          lastSaleAt: last ? last.toISOString() : null,
+        });
+      }
+    }
+    if (batch.stockQty <= batch.lowStockThreshold) {
+      reorder.push({
+        batchId: batch.id,
+        productName: batch.productName,
+        priceCode: batch.priceCode,
+        quantity: batch.stockQty,
+        threshold: batch.lowStockThreshold,
+        reorder: Math.max(0, batch.lowStockThreshold - batch.stockQty),
+      });
+    }
+  }
+  deadStock.sort(
+    (left, right) =>
+      right.quantity - left.quantity || left.productName.localeCompare(right.productName),
+  );
+  reorder.sort(
+    (left, right) =>
+      right.reorder - left.reorder || left.productName.localeCompare(right.productName),
+  );
+
   return {
     from: range.from,
     to: range.to,
@@ -280,6 +499,25 @@ export async function getInventoryReport(
       batchId: alert.relatedEntityType === 'InventoryBatch' ? alert.relatedEntityId : null,
     })),
     rows,
+    stockValue: {
+      cost: centsToMoney(stockCost),
+      sale: centsToMoney(stockSale),
+      missingCost,
+    },
+    valuation,
+    reorder,
+    ledger: movements.map((row) => ({
+      id: row.id,
+      at: row.createdAt.toISOString(),
+      productName: row.batch.productName,
+      kind: movementKind(row.type),
+      quantity: row.quantityChange,
+      balance: row.balanceAfter,
+      note: row.note,
+      by: row.createdByUserId ? (userNames.get(row.createdByUserId) ?? null) : null,
+    })),
+    deadStock,
+    quietDays: quiet,
   };
 }
 
@@ -318,24 +556,28 @@ export async function getCreditReport(
 
 export async function exportReportWorkbook(
   auth: AuthSessionUser,
-  reportType: 'SALES' | 'INVENTORY' | 'CREDIT',
+  reportType: 'SALES' | 'INVENTORY' | 'CREDIT' | 'CUSTOMERS',
   from: string,
   to: string,
+  quietDays = 60,
 ): Promise<{ filename: string; body: Buffer }> {
   const workbook = new ExcelJS.Workbook();
   if (reportType === 'SALES') {
     const report = await getSalesReport(auth, from, to);
     const summary = workbook.addWorksheet('Summary');
     summary.columns = [
-      { header: 'Item', key: 'item', width: 22 },
+      { header: 'Item', key: 'item', width: 28 },
       { header: 'Value', key: 'value', width: 24 },
     ];
     summary.addRows([
       { item: 'From', value: report.from },
       { item: 'To', value: report.to },
-      { item: 'Revenue', value: report.revenue },
+      { item: 'Total sale', value: report.revenue },
+      ...(report.costIncurred ? [{ item: 'Total cost incurred', value: report.costIncurred }] : []),
+      ...(report.labExpense ? [{ item: 'Lab expense', value: report.labExpense }] : []),
+      ...(report.profit ? [{ item: 'Profit gained', value: report.profit }] : []),
       { item: 'Invoices', value: report.invoiceCount },
-      { item: 'Average value', value: report.averageValue },
+      { item: 'Average bill', value: report.averageValue },
       { item: 'Cash', value: report.cashTotal },
       { item: 'Credit', value: report.creditTotal },
     ]);
@@ -358,10 +600,11 @@ export async function exportReportWorkbook(
         issued: row.issuedAt,
       });
     }
+    addSalesSheets(workbook, report);
     return { filename: 'sales-report.xlsx', body: await workbookBuffer(workbook) };
   }
   if (reportType === 'INVENTORY') {
-    const report = await getInventoryReport(auth, from, to);
+    const report = await getInventoryReport(auth, from, to, quietDays);
     const summary = workbook.addWorksheet('Summary');
     summary.columns = [
       { header: 'Item', key: 'item', width: 22 },
@@ -373,6 +616,9 @@ export async function exportReportWorkbook(
       { item: 'Items sold', value: report.itemsSold },
       { item: 'Units moved', value: report.unitsMoved },
       { item: 'Low stock events', value: report.lowStockEvents },
+      { item: 'Stock at cost', value: report.stockValue.cost },
+      { item: 'Stock at sale price', value: report.stockValue.sale },
+      { item: 'Dead stock', value: report.deadStock.length },
     ]);
     const stock = workbook.addWorksheet('Stock');
     stock.columns = [
@@ -393,7 +639,26 @@ export async function exportReportWorkbook(
         closing: row.closing,
       });
     }
+    addInventorySheets(workbook, report);
     return { filename: 'inventory-report.xlsx', body: await workbookBuffer(workbook) };
+  }
+  if (reportType === 'CUSTOMERS') {
+    const report = await getCustomerReport(auth, from, to);
+    const summary = workbook.addWorksheet('Summary');
+    summary.columns = [
+      { header: 'Item', key: 'item', width: 28 },
+      { header: 'Value', key: 'value', width: 24 },
+    ];
+    summary.addRows([
+      { item: 'From', value: report.from },
+      { item: 'To', value: report.to },
+      { item: 'New customers', value: report.acquired.newCount },
+      { item: 'New customer sale', value: report.acquired.newSale },
+      { item: 'Returning customers', value: report.acquired.returningCount },
+      { item: 'Returning sale', value: report.acquired.returningSale },
+    ]);
+    addCustomerSheets(workbook, report);
+    return { filename: 'customers-report.xlsx', body: await workbookBuffer(workbook) };
   }
   requireOwner(auth);
   const report = await getCreditReport(auth);
@@ -419,9 +684,10 @@ export async function exportReportWorkbook(
 
 export async function exportReportPdf(
   auth: AuthSessionUser,
-  reportType: 'SALES' | 'INVENTORY' | 'CREDIT',
+  reportType: 'SALES' | 'INVENTORY' | 'CREDIT' | 'CUSTOMERS',
   from: string,
   to: string,
+  quietDays = 60,
 ): Promise<{ filename: string; body: Buffer }> {
   if (reportType === 'SALES') {
     const report = await getSalesReport(auth, from, to);
@@ -438,9 +704,12 @@ export async function exportReportPdf(
             rows: [
               ['From', report.from],
               ['To', report.to],
-              ['Revenue', report.revenue],
+              ['Total sale', report.revenue],
+              ...(report.costIncurred ? [['Total cost incurred', report.costIncurred]] : []),
+              ...(report.labExpense ? [['Lab expense', report.labExpense]] : []),
+              ...(report.profit ? [['Profit gained', report.profit]] : []),
               ['Invoices', String(report.invoiceCount)],
-              ['Average value', report.averageValue],
+              ['Average bill', report.averageValue],
               ['Cash', report.cashTotal],
               ['Credit', report.creditTotal],
             ],
@@ -459,12 +728,13 @@ export async function exportReportPdf(
               pdfWhen(row.issuedAt),
             ]),
           },
+          ...salesPdfTables(report),
         ],
       }),
     };
   }
   if (reportType === 'INVENTORY') {
-    const report = await getInventoryReport(auth, from, to);
+    const report = await getInventoryReport(auth, from, to, quietDays);
     return {
       filename: 'inventory-report.pdf',
       body: renderTablePdf({
@@ -481,6 +751,9 @@ export async function exportReportPdf(
               ['Items sold', String(report.itemsSold)],
               ['Units moved', String(report.unitsMoved)],
               ['Low stock events', String(report.lowStockEvents)],
+              ['Stock at cost', report.stockValue.cost],
+              ['Stock at sale price', report.stockValue.sale],
+              ['Dead stock', String(report.deadStock.length)],
             ],
           },
           {
@@ -497,6 +770,33 @@ export async function exportReportPdf(
               String(row.closing),
             ]),
           },
+          ...inventoryPdfTables(report),
+        ],
+      }),
+    };
+  }
+  if (reportType === 'CUSTOMERS') {
+    const report = await getCustomerReport(auth, from, to);
+    return {
+      filename: 'customers-report.pdf',
+      body: renderTablePdf({
+        title: 'OptiWorld customers',
+        landscape: true,
+        tables: [
+          {
+            heading: 'Summary',
+            columns: ['Item', 'Value'],
+            widths: [1.4, 1],
+            rows: [
+              ['From', report.from],
+              ['To', report.to],
+              ['New customers', String(report.acquired.newCount)],
+              ['New customer sale', report.acquired.newSale],
+              ['Returning customers', String(report.acquired.returningCount)],
+              ['Returning sale', report.acquired.returningSale],
+            ],
+          },
+          ...customerPdfTables(report),
         ],
       }),
     };
@@ -617,6 +917,132 @@ async function workbookBuffer(workbook: ExcelJS.Workbook): Promise<Buffer> {
   }
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
+}
+
+async function loadCashiers(orgId: string, ids: readonly string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (ids.length === 0) {
+    return names;
+  }
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      orgId,
+      entityType: 'Invoice',
+      entityId: { in: [...ids] },
+      action: 'POS_INVOICE_CREATED',
+    },
+    orderBy: { createdAt: 'asc' },
+    select: { entityId: true, user: { select: { name: true } } },
+  });
+  for (const log of logs) {
+    if (!names.has(log.entityId)) {
+      names.set(log.entityId, log.user?.name ?? 'Unknown');
+    }
+  }
+  return names;
+}
+
+async function loadReturns(orgId: string, range: Range): Promise<ReturnSectionInput[]> {
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      orgId,
+      cancelledAt: { gte: range.start, lt: range.end },
+      NOT: { reviewReason: 'Opening credit' },
+    },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      total: true,
+      customer: { select: { name: true } },
+    },
+    orderBy: { invoiceNumber: 'desc' },
+  });
+  if (invoices.length === 0) {
+    return [];
+  }
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      orgId,
+      entityType: 'Invoice',
+      entityId: { in: invoices.map((invoice) => invoice.id) },
+      action: { in: ['INVOICE_REMOVED', 'INVOICE_CANCELLED'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { entityId: true, action: true, metadata: true, user: { select: { name: true } } },
+  });
+  const notes = new Map<string, Pick<ReturnSectionInput, 'kind' | 'reason' | 'by'>>();
+  for (const log of logs) {
+    const kind = log.action === 'INVOICE_REMOVED' ? 'REMOVED' : 'CANCELLED';
+    const current = notes.get(log.entityId);
+    if (current?.kind === 'REMOVED' || (current && kind !== 'REMOVED')) {
+      continue;
+    }
+    notes.set(log.entityId, {
+      kind,
+      reason: reasonFromMetadata(log.metadata),
+      by: log.user?.name ?? null,
+    });
+  }
+  return invoices.map((invoice) => {
+    const detail = notes.get(invoice.id);
+    return {
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      customerName: invoice.customer.name,
+      amount: cents(invoice.total),
+      reason: detail?.reason ?? null,
+      by: detail?.by ?? null,
+      kind: detail?.kind ?? 'CANCELLED',
+    };
+  });
+}
+
+function movementKind(type: string): 'In' | 'Out' | 'Adjustment' {
+  if (type === 'SALE') {
+    return 'Out';
+  }
+  if (type === 'RECEIVED' || type === 'OPENING') {
+    return 'In';
+  }
+  return 'Adjustment';
+}
+
+async function loadRemovalNotes(
+  orgId: string,
+  ids: readonly string[],
+): Promise<Map<string, { reason: string | null; by: string | null }>> {
+  const notes = new Map<string, { reason: string | null; by: string | null }>();
+  if (ids.length === 0) {
+    return notes;
+  }
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      orgId,
+      entityType: 'Invoice',
+      entityId: { in: [...ids] },
+      action: 'INVOICE_REMOVED',
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { entityId: true, metadata: true, user: { select: { name: true } } },
+  });
+  for (const log of logs) {
+    if (notes.has(log.entityId)) {
+      continue;
+    }
+    notes.set(log.entityId, {
+      reason: reasonFromMetadata(log.metadata),
+      by: log.user?.name ?? null,
+    });
+  }
+  return notes;
+}
+
+function reasonFromMetadata(metadata: unknown): string | null {
+  if (typeof metadata !== 'object' || metadata === null || !('reason' in metadata)) {
+    return null;
+  }
+  const reason = metadata.reason;
+  return typeof reason === 'string' && reason.trim().length > 0 ? reason : null;
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {

@@ -99,7 +99,7 @@ export function PrescriptionFields({
             value={draft.notes}
             maxLength={500}
             onChange={(event) => onChange({ ...draft, notes: event.target.value })}
-            className="min-h-11 rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-action"
+            className="box-border min-h-11 w-full min-w-0 max-w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-action"
           />
         </label>
       ) : null}
@@ -275,7 +275,7 @@ function ReadingField({
   }, [open]);
 
   return (
-    <label className="grid gap-1 text-xs text-ink2">
+    <label className="grid min-w-0 gap-1 text-xs text-ink2">
       <span className="inline-flex items-center gap-1">
         {icon}
         {label}
@@ -297,7 +297,7 @@ function ReadingField({
               setOpen(true);
             }
           }}
-          className={`min-h-11 w-full rounded-lg border bg-white px-3 py-2 pr-9 text-sm text-ink outline-none focus:border-action ${
+          className={`box-border min-h-11 w-full min-w-0 max-w-full rounded-lg border bg-white px-3 py-2 pr-9 text-sm text-ink outline-none focus:border-action ${
             error ? 'border-danger' : 'border-line'
           }`}
         />

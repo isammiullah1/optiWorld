@@ -1,13 +1,16 @@
 'use client';
 
 import {
+  LabBillSchema,
   LabBoardJobSchema,
+  LabServiceSchema,
   LabBoardSchema,
   LabClientJobsSchema,
   LabClientRowSchema,
   LabRequestListsSchema,
   LabRetailerRequestSchema,
   LabInventoryItemSchema,
+  LabIncomeSchema,
   LabJobActivitySchema,
   LabJobHistorySchema,
   LabTurnaroundSchema,
@@ -17,11 +20,17 @@ import {
   type CreateLabBoardJobRequest,
   type ItemPrescription,
   type JobStatus,
+  type LabBill,
   type LabBoard,
+  type LabServiceRow,
+  type SaveLabServiceRequest,
+  type UpdateLabBillRequest,
   type LabBoardJob,
   type LabClientJobs,
   type LabClientRow,
   type LabRequestLists,
+  type LabIncome,
+  type LabIncomeQuery,
   type LabInventoryItem,
   type LabJobActivity,
   type LabJobHistory,
@@ -36,7 +45,11 @@ const BoardResponseSchema = z.object({ success: z.literal(true), data: LabBoardS
 const JobResponseSchema = z.object({ success: z.literal(true), data: LabBoardJobSchema });
 const CreatedResponseSchema = z.object({
   success: z.literal(true),
-  data: z.object({ id: z.string().uuid(), referenceNumber: z.string() }),
+  data: z.object({
+    id: z.string().uuid(),
+    referenceNumber: z.string(),
+    invoice: LabBillSchema.nullable(),
+  }),
 });
 const UrgentResponseSchema = z.object({
   success: z.literal(true),
@@ -94,7 +107,7 @@ export async function reserveLabReference(token: string): Promise<string> {
 export async function createLabBoardJob(
   token: string,
   input: CreateLabBoardJobRequest,
-): Promise<{ id: string; referenceNumber: string }> {
+): Promise<{ id: string; referenceNumber: string; invoice: LabBill | null }> {
   const payload = await send(token, '/api/v1/lab/jobs', 'POST', input, CreatedResponseSchema);
   return payload.data;
 }
@@ -391,6 +404,75 @@ export async function loadLabClientJobs(token: string, clientId: string): Promis
   return payload.data;
 }
 
+const IncomeResponseSchema = z.object({ success: z.literal(true), data: LabIncomeSchema });
+
+export async function loadLabIncome(token: string, query: LabIncomeQuery): Promise<LabIncome> {
+  const params = new URLSearchParams({ from: query.from, to: query.to });
+  if (query.party) {
+    params.set('party', query.party);
+  }
+  if (query.service) {
+    params.set('service', query.service);
+  }
+  if (query.billStatus) {
+    params.set('billStatus', query.billStatus);
+  }
+  if (query.status) {
+    params.set('status', query.status);
+  }
+  if (query.urgent) {
+    params.set('urgent', query.urgent);
+  }
+  if (query.finishedBy) {
+    params.set('finishedBy', query.finishedBy);
+  }
+  const payload = await request(
+    token,
+    `/api/v1/lab/income?${params.toString()}`,
+    IncomeResponseSchema,
+  );
+  return payload.data;
+}
+
+export async function downloadLabIncome(
+  token: string,
+  query: LabIncomeQuery & { format: 'xlsx' | 'pdf' },
+): Promise<void> {
+  const params = new URLSearchParams({ from: query.from, to: query.to, format: query.format });
+  if (query.party) {
+    params.set('party', query.party);
+  }
+  if (query.service) {
+    params.set('service', query.service);
+  }
+  if (query.billStatus) {
+    params.set('billStatus', query.billStatus);
+  }
+  if (query.status) {
+    params.set('status', query.status);
+  }
+  if (query.urgent) {
+    params.set('urgent', query.urgent);
+  }
+  if (query.finishedBy) {
+    params.set('finishedBy', query.finishedBy);
+  }
+  const response = await fetch(`${API_BASE}/api/v1/lab/income/export?${params.toString()}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    throw new Error(messageFrom(payload) ?? 'The workbook could not be downloaded');
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = query.format === 'pdf' ? 'lab-income.pdf' : 'lab-income.xlsx';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function loadLabJobActivity(
   token: string,
   from: string,
@@ -484,6 +566,168 @@ export async function downloadLabJobHistory(
   link.download = filters.format === 'pdf' ? 'job-history.pdf' : 'job-history.xlsx';
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export async function loadOwnLabServices(token: string): Promise<LabServiceRow[]> {
+  const payload = await request(
+    token,
+    '/api/v1/lab/services',
+    z.object({ success: z.literal(true), data: z.array(LabServiceSchema) }),
+  );
+  return payload.data;
+}
+
+export async function saveOwnLabService(
+  token: string,
+  serviceId: string | null,
+  input: SaveLabServiceRequest,
+): Promise<LabServiceRow> {
+  const payload = await send(
+    token,
+    serviceId ? `/api/v1/lab/services/${serviceId}` : '/api/v1/lab/services',
+    serviceId ? 'PATCH' : 'POST',
+    input,
+    z.object({ success: z.literal(true), data: LabServiceSchema }),
+  );
+  return payload.data;
+}
+
+export async function loadLaboratoryBills(
+  token: string,
+  query: { labClientId?: string; from?: string; to?: string },
+): Promise<LabBill[]> {
+  const params = new URLSearchParams();
+  if (query.labClientId) {
+    params.set('labClientId', query.labClientId);
+  }
+  if (query.from) {
+    params.set('from', query.from);
+  }
+  if (query.to) {
+    params.set('to', query.to);
+  }
+  const payload = await request(
+    token,
+    `/api/v1/lab/bills?${params.toString()}`,
+    z.object({ success: z.literal(true), data: z.array(LabBillSchema) }),
+  );
+  return payload.data;
+}
+
+export async function issueLabBill(token: string, billId: string): Promise<LabBill> {
+  const payload = await send(
+    token,
+    `/api/v1/lab/bills/${billId}/issue`,
+    'POST',
+    {},
+    z.object({ success: z.literal(true), data: LabBillSchema }),
+  );
+  return payload.data;
+}
+
+export async function collectWalkInBalance(token: string, billId: string): Promise<LabBill> {
+  const payload = await send(
+    token,
+    `/api/v1/lab/bills/${billId}/collect`,
+    'POST',
+    {},
+    z.object({ success: z.literal(true), data: LabBillSchema }),
+  );
+  return payload.data;
+}
+
+export async function clearLabBill(token: string, billId: string): Promise<LabBill> {
+  const payload = await send(
+    token,
+    `/api/v1/lab/bills/${billId}/clear`,
+    'POST',
+    {},
+    z.object({ success: z.literal(true), data: LabBillSchema }),
+  );
+  return payload.data;
+}
+
+export async function addLabBillLine(
+  token: string,
+  billId: string,
+  labServiceId: string,
+  quantity: number,
+): Promise<LabBill> {
+  const payload = await send(
+    token,
+    `/api/v1/lab/bills/${billId}/lines`,
+    'POST',
+    { labServiceId, quantity },
+    z.object({ success: z.literal(true), data: LabBillSchema }),
+  );
+  return payload.data;
+}
+
+export async function adjustLabBill(
+  token: string,
+  billId: string,
+  note: string,
+  amount: string,
+): Promise<LabBill> {
+  const payload = await send(
+    token,
+    `/api/v1/lab/bills/${billId}/adjustments`,
+    'POST',
+    { note, amount },
+    z.object({ success: z.literal(true), data: LabBillSchema }),
+  );
+  return payload.data;
+}
+
+export async function updateLabBill(
+  token: string,
+  billId: string,
+  input: UpdateLabBillRequest,
+): Promise<LabBill> {
+  const payload = await send(
+    token,
+    `/api/v1/lab/bills/${billId}`,
+    'PATCH',
+    input,
+    z.object({ success: z.literal(true), data: LabBillSchema }),
+  );
+  return payload.data;
+}
+
+export async function downloadLaboratoryBills(
+  token: string,
+  format: 'xlsx' | 'pdf',
+  query: { from?: string; to?: string; labClientId?: string },
+): Promise<void> {
+  const params = new URLSearchParams({ format });
+  if (query.from) {
+    params.set('from', query.from);
+  }
+  if (query.to) {
+    params.set('to', query.to);
+  }
+  if (query.labClientId) {
+    params.set('labClientId', query.labClientId);
+  }
+  const response = await fetch(`${API_BASE}/api/v1/lab/bills/export?${params.toString()}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error('The lab income sheet could not be downloaded');
+  }
+  await saveLabDownload(response, `lab-income.${format}`);
+}
+
+async function saveLabDownload(response: Response, filename: string): Promise<void> {
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 async function request<T>(token: string, path: string, schema: z.ZodType<T>): Promise<T> {

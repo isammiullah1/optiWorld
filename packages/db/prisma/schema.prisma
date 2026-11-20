@@ -150,6 +150,13 @@ enum JobStatus {
   OUTSOURCED
 }
 
+enum LabBillStatus {
+  OPEN
+  ISSUED
+  CLEARED
+  VOID
+}
+
 enum DeliveryStatus {
   WAITING
   READY
@@ -236,6 +243,9 @@ model Organisation {
   labStockMovements      LabStockMovement[]
   labClients             LabClient[]          @relation("LabClientOwner")
   labClientLinks         LabClient[]          @relation("LabClientLink")
+  labServices            LabService[]
+  labBills               LabBill[]            @relation("LabBills")
+  retailerLabBills       LabBill[]            @relation("RetailerLabBills")
   subscriptions          Subscription[]
   invites                OrganisationInvite[]
   alerts                 Alert[]
@@ -372,6 +382,7 @@ model Invoice {
   items    InvoiceItem[]
   payments Payment[]
   labJobs  LabJob[]
+  labBills LabBill[]
   delivery Delivery?
 
   @@unique([orgId, invoiceNumber])
@@ -697,6 +708,7 @@ model LabJob {
   labClient       LabClient?            @relation(fields: [labClientId], references: [id], onDelete: SetNull)
   statusHistory   LabJobStatusHistory[]
   stockMovements  LabStockMovement[]
+  labBill         LabBill?
 
   @@index([labOrgId])
   @@index([labClientId])
@@ -733,6 +745,7 @@ model LabInventory {
   category     String
   quantity     Decimal  @db.Decimal(12, 3)
   unit         String
+  unitCost     Decimal? @map("unit_cost") @db.Decimal(12, 2)
   reorderLevel Decimal  @default(0) @map("reorder_level") @db.Decimal(12, 3)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -751,6 +764,7 @@ model LabStockMovement {
   itemId          String   @map("item_id") @db.Uuid
   kind            String   @db.VarChar(16)
   quantity        Decimal  @db.Decimal(12, 3)
+  unitCost        Decimal? @map("unit_cost") @db.Decimal(12, 2)
   balanceAfter    Decimal  @map("balance_after") @db.Decimal(12, 3)
   supplier        String?
   labJobId        String?  @map("lab_job_id") @db.Uuid
@@ -784,6 +798,7 @@ model LabClient {
   lab       Organisation  @relation("LabClientOwner", fields: [labOrgId], references: [id], onDelete: Restrict)
   linkedOrg Organisation? @relation("LabClientLink", fields: [linkedOrgId], references: [id], onDelete: SetNull)
   jobs      LabJob[]
+  labBills  LabBill[]
 
   @@unique([labOrgId, linkedOrgId])
   @@index([labOrgId])
@@ -791,6 +806,92 @@ model LabClient {
   @@index([linkedOrgId])
   @@index([linkedOrgId, status])
   @@map("lab_clients")
+}
+
+model LabService {
+  id        String   @id @default(uuid()) @db.Uuid
+  labOrgId  String   @map("lab_org_id") @db.Uuid
+  name      String
+  price     Decimal  @db.Decimal(12, 2)
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  lab   Organisation   @relation(fields: [labOrgId], references: [id], onDelete: Restrict)
+  lines LabBillLine[]
+
+  @@unique([labOrgId, name])
+  @@index([labOrgId, isActive])
+  @@map("lab_services")
+}
+
+model LabBill {
+  id                String        @id @default(uuid()) @db.Uuid
+  labOrgId          String        @map("lab_org_id") @db.Uuid
+  retailerOrgId     String?       @map("retailer_org_id") @db.Uuid
+  labClientId       String?       @map("lab_client_id") @db.Uuid
+  labJobId          String        @unique @map("lab_job_id") @db.Uuid
+  retailerInvoiceId String?       @map("retailer_invoice_id") @db.Uuid
+  status            LabBillStatus @default(OPEN)
+  discount          Decimal       @default(0) @db.Decimal(12, 2)
+  discountReason    String?       @map("discount_reason") @db.VarChar(200)
+  total             Decimal       @default(0) @db.Decimal(12, 2)
+  amountPaid        Decimal       @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  issuedAt          DateTime?     @map("issued_at")
+  clearedAt         DateTime?     @map("cleared_at")
+  clearedByUserId   String?       @map("cleared_by_user_id") @db.Uuid
+  voidedAt          DateTime?     @map("voided_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  lab             Organisation        @relation("LabBills", fields: [labOrgId], references: [id], onDelete: Restrict)
+  retailer        Organisation?       @relation("RetailerLabBills", fields: [retailerOrgId], references: [id], onDelete: SetNull)
+  labClient       LabClient?          @relation(fields: [labClientId], references: [id], onDelete: SetNull)
+  labJob          LabJob              @relation(fields: [labJobId], references: [id], onDelete: Restrict)
+  retailerInvoice Invoice?            @relation(fields: [retailerInvoiceId], references: [id], onDelete: SetNull)
+  lines           LabBillLine[]
+  adjustments     LabBillAdjustment[]
+
+  @@index([labOrgId, status])
+  @@index([retailerOrgId, status])
+  @@index([retailerInvoiceId])
+  @@index([labClientId])
+  @@index([createdAt])
+  @@map("lab_bills")
+}
+
+model LabBillLine {
+  id           String   @id @default(uuid()) @db.Uuid
+  labBillId    String   @map("lab_bill_id") @db.Uuid
+  labServiceId String?  @map("lab_service_id") @db.Uuid
+  serviceName  String   @map("service_name")
+  listPrice    Decimal  @map("list_price") @db.Decimal(12, 2)
+  unitPrice    Decimal  @map("unit_price") @db.Decimal(12, 2)
+  quantity     Int      @default(1)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  labBill    LabBill     @relation(fields: [labBillId], references: [id], onDelete: Cascade)
+  labService LabService? @relation(fields: [labServiceId], references: [id], onDelete: SetNull)
+
+  @@index([labBillId])
+  @@index([labServiceId])
+  @@map("lab_bill_lines")
+}
+
+model LabBillAdjustment {
+  id              String   @id @default(uuid()) @db.Uuid
+  labBillId       String   @map("lab_bill_id") @db.Uuid
+  note            String   @db.VarChar(200)
+  amount          Decimal  @db.Decimal(12, 2)
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  labBill LabBill @relation(fields: [labBillId], references: [id], onDelete: Cascade)
+
+  @@index([labBillId])
+  @@index([createdByUserId])
+  @@map("lab_bill_adjustments")
 }
 
 // ── Subscriptions, alerts, audit ───────────────────────────────────────────

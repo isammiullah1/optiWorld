@@ -9,7 +9,7 @@ import { LabTeam } from './LabTeam';
 import { loadLabProfile, saveLabAccount, saveLabProfile } from './lab-account-api';
 
 const fieldClass =
-  'min-h-11 rounded-lg border border-line px-3 text-sm text-ink outline-none focus:border-action disabled:bg-canvas';
+  'min-h-11 rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none focus:border-action disabled:bg-canvas';
 
 export function LabSettings(): React.ReactElement {
   const { data: session } = useSession();
@@ -110,7 +110,7 @@ function LaboratoryForm({
 
   return (
     <form
-      className="grid gap-3 rounded-xl border border-line bg-white p-4"
+      className="grid gap-3 rounded-xl border-2 border-action bg-action-soft p-4"
       onSubmit={(event) => {
         event.preventDefault();
         if (!canEdit) {
@@ -197,7 +197,7 @@ function AccountForm({
 
   return (
     <form
-      className="grid gap-3 rounded-xl border border-line bg-white p-4"
+      className="grid gap-3 rounded-xl border-2 border-teal bg-teal-soft p-4"
       onSubmit={(event) => {
         event.preventDefault();
         setSaving(true);

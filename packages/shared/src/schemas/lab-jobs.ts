@@ -75,6 +75,7 @@ export const ConnectLabSchema = z.object({
 export const CreateLabJobSchema = withLabPrescriptionRules(
   LabPrescriptionObject.extend({
     patientName: z.string().trim().min(1).max(120),
+    serviceIds: z.array(uuid).max(20).optional(),
   }),
 );
 
@@ -201,7 +202,9 @@ export const LabKanbanCardSchema = z.object({
   status: z.enum(JOB_STATUSES),
   isUrgent: z.boolean(),
   rxSummary: z.string(),
+  services: z.array(z.string()),
   stageNote: z.string().nullable(),
+  closedByName: z.string().nullable().optional(),
   stageEnteredAt: z.string(),
   createdAt: z.string(),
   trail: z.array(z.enum(JOB_STATUSES)),
@@ -249,34 +252,69 @@ export const RedirectLabJobSchema = z.object({
   labOrgId: uuid,
 });
 
-export const CreateLabBoardJobSchema = z.object({
-  patientName: z.string().trim().min(1, 'Enter the customer name.').max(120),
-  patientPhone: z
-    .string()
-    .trim()
-    .min(1, 'Enter a phone number.')
-    .max(30, 'Phone must be 30 characters or fewer.')
-    .superRefine((value, ctx) => {
-      if (!isShopPhone(value)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: shopPhoneMessage(value) });
-      }
-    }),
-  frameName: z.string().trim().min(1, 'Enter the frame name.').max(80),
-  frameType: z.string().trim().min(1, 'Enter the frame type.').max(80),
-  lensName: z.string().trim().min(1, 'Enter the lens name.').max(80),
-  lensType: z.string().trim().min(1, 'Enter the lens type.').max(80),
-  frameMaterial: z.string().trim().max(80).optional().or(z.literal('')),
-  eyeSize: z.string().trim().max(20).optional().or(z.literal('')),
-  retailerOrgId: uuid.optional().or(z.literal('')),
-  labClientId: uuid.optional().or(z.literal('')),
-  specialInstructions: z.string().trim().max(500).optional().or(z.literal('')),
-  referenceNumber: z
-    .string()
-    .regex(/^(?:OW-\d{4}-\d{3}|OW-LAB-\d{4}-[A-Z0-9]{5})$/, 'The product tag number is not ready.')
-    .optional()
-    .or(z.literal('')),
-  prescription: ItemPrescriptionSchema,
-});
+export const CreateLabBoardJobSchema = z
+  .object({
+    patientName: z.string().trim().min(1, 'Enter the customer name.').max(120),
+    patientPhone: z
+      .string()
+      .trim()
+      .min(1, 'Enter a phone number.')
+      .max(30, 'Phone must be 30 characters or fewer.')
+      .superRefine((value, ctx) => {
+        if (!isShopPhone(value)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: shopPhoneMessage(value) });
+        }
+      }),
+    frameName: z.string().trim().max(80).optional().or(z.literal('')),
+    frameType: z.string().trim().max(80).optional().or(z.literal('')),
+    lensName: z.string().trim().max(80).optional().or(z.literal('')),
+    lensType: z.string().trim().max(80).optional().or(z.literal('')),
+    frameMaterial: z.string().trim().max(80).optional().or(z.literal('')),
+    eyeSize: z.string().trim().max(20).optional().or(z.literal('')),
+    retailerOrgId: uuid.optional().or(z.literal('')),
+    labClientId: uuid.optional().or(z.literal('')),
+    specialInstructions: z.string().trim().max(500).optional().or(z.literal('')),
+    referenceNumber: z
+      .string()
+      .regex(
+        /^(?:OW-\d{4}-\d{3}|OW-LAB-\d{4}-[A-Z0-9]{5})$/,
+        'The product tag number is not ready.',
+      )
+      .optional()
+      .or(z.literal('')),
+    prescription: ItemPrescriptionSchema,
+    serviceIds: z.array(uuid).max(20).optional(),
+    servicePrices: z
+      .array(
+        z.object({
+          serviceId: uuid,
+          price: z
+            .string()
+            .trim()
+            .regex(/^\d{1,10}(\.\d{1,2})?$/, 'Enter a service price.'),
+        }),
+      )
+      .max(20)
+      .optional(),
+    amountReceived: z
+      .string()
+      .trim()
+      .regex(/^\d{1,10}(\.\d{1,2})?$/, 'Enter the amount received.')
+      .optional()
+      .or(z.literal('')),
+  })
+  .superRefine((value, ctx) => {
+    const filled = [value.frameName, value.frameType, value.lensName, value.lensType].some(
+      (part) => (part ?? '').trim().length > 0,
+    );
+    if (!filled) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Enter at least one lens or frame detail.',
+        path: ['lensName'],
+      });
+    }
+  });
 
 export type LabKanbanCard = z.infer<typeof LabKanbanCardSchema>;
 export type LabBoard = z.infer<typeof LabBoardSchema>;
@@ -295,7 +333,7 @@ const EyePowerSchema = z.object({
 
 export const CreateDirectLabJobSchema = z
   .object({
-    patientName: z.string().trim().min(1, 'Enter the patient name.').max(120),
+    patientName: z.string().trim().min(1, 'Enter the customer name.').max(120),
     patientPhone: z.string().trim().max(30).optional().or(z.literal('')),
     labOrgId: uuid,
     right: EyePowerSchema,
@@ -303,8 +341,8 @@ export const CreateDirectLabJobSchema = z
     add: z.string().max(20).default(''),
     pd: z.string().max(20).default(''),
     notes: z.string().max(500).default(''),
-    lensName: z.string().trim().min(1, 'Enter the lens name.').max(80),
-    lensType: z.string().trim().min(1, 'Enter the lens type.').max(80),
+    lensName: z.string().trim().max(80).optional().or(z.literal('')),
+    lensType: z.string().trim().max(80).optional().or(z.literal('')),
     frameName: z.string().trim().max(80).optional().or(z.literal('')),
     frameType: z.string().trim().max(80).optional().or(z.literal('')),
     frameMaterial: z.string().trim().max(80).optional().or(z.literal('')),
@@ -314,6 +352,7 @@ export const CreateDirectLabJobSchema = z
       z.object({ mode: z.literal('NONE') }),
       z.object({ mode: z.literal('EXISTING'), invoiceId: uuid }),
     ]),
+    serviceIds: z.array(uuid).max(20).optional(),
   })
   .superRefine((value, ctx) => {
     const phone = value.patientPhone?.trim() ?? '';

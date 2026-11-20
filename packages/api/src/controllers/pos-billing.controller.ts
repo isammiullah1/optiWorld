@@ -7,6 +7,7 @@ import {
   SendInvoiceLabSchema,
   SendReceiptRequestSchema,
   FinalizeInvoiceLabSchema,
+  RemoveInvoiceSchema,
   UpdateInvoicePrescriptionSchema,
 } from '@optiworld/shared';
 
@@ -59,7 +60,12 @@ export function createPosBillingController() {
       res.status(200).json({ success: true, data });
     }),
     removeInvoice: asyncHandler(async (req: Request, res: Response) => {
-      const data = await removeInvoice(requireSession(req), readParam(req.params.invoiceId));
+      const input = RemoveInvoiceSchema.parse(req.body ?? {});
+      const data = await removeInvoice(
+        requireSession(req),
+        readParam(req.params.invoiceId),
+        input.reason,
+      );
       res.status(200).json({ success: true, data });
     }),
     cancelInvoice: asyncHandler(async (req: Request, res: Response) => {
@@ -77,6 +83,7 @@ export function createPosBillingController() {
         requireSession(req),
         readParam(req.params.invoiceId),
         input.labOrgId,
+        input.serviceIds,
       );
       res.status(200).json({ success: true, data });
     }),

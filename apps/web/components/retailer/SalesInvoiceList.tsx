@@ -67,6 +67,8 @@ export function SalesInvoiceList({
   });
   const [applied, setApplied] = useState<Filters>(draft);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removeReason, setRemoveReason] = useState('');
+  const [showDeleted, setShowDeleted] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -80,10 +82,11 @@ export function SalesInvoiceList({
   const rows = useMemo(
     () =>
       invoices
+        .filter((invoice) => invoice.removed === showDeleted)
         .filter((invoice) => matches(invoice, applied))
         .slice()
         .sort((left, right) => right.issuedAt.localeCompare(left.issuedAt)),
-    [applied, invoices],
+    [applied, invoices, showDeleted],
   );
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -101,8 +104,9 @@ export function SalesInvoiceList({
     setBusyId(invoice.id);
     setError(null);
     try {
-      await removeSale(token, invoice.id);
+      await removeSale(token, invoice.id, removeReason.trim());
       setRemovingId(null);
+      setRemoveReason('');
       onChanged();
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : 'The sale could not be removed');
@@ -146,6 +150,21 @@ export function SalesInvoiceList({
             className="h-9 shrink-0 rounded-lg bg-action px-4 text-sm font-medium text-white"
           >
             Apply filters
+          </button>
+          <button
+            type="button"
+            aria-pressed={showDeleted}
+            onClick={() => {
+              setShowDeleted((current) => !current);
+              setRemovingId(null);
+              setRemoveReason('');
+              setPage(1);
+            }}
+            className={`h-9 shrink-0 rounded-lg px-4 text-sm font-medium ${
+              showDeleted ? 'bg-navy text-white' : 'border border-line bg-white text-ink2'
+            }`}
+          >
+            Deleted bills
           </button>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -226,6 +245,7 @@ export function SalesInvoiceList({
                 'Amount paid',
                 'Balance',
                 'Date',
+                ...(showDeleted ? ['Reason', 'Removed by'] : []),
                 'Actions',
               ].map((heading) => (
                 <th
@@ -240,8 +260,13 @@ export function SalesInvoiceList({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-sm text-ink2">
-                  No sales match these filters.
+                <td
+                  colSpan={showDeleted ? 11 : 9}
+                  className="px-3 py-6 text-center text-sm text-ink2"
+                >
+                  {showDeleted
+                    ? 'No deleted bills in this range.'
+                    : 'No sales match these filters.'}
                 </td>
               </tr>
             ) : (
@@ -250,10 +275,19 @@ export function SalesInvoiceList({
                   key={invoice.id}
                   invoice={invoice}
                   canEdit={canEdit}
+                  showDeleted={showDeleted}
                   busy={busyId === invoice.id}
                   removing={removingId === invoice.id}
-                  onAskRemove={() => setRemovingId(invoice.id)}
-                  onKeep={() => setRemovingId(null)}
+                  reason={removingId === invoice.id ? removeReason : ''}
+                  onAskRemove={() => {
+                    setRemovingId(invoice.id);
+                    setRemoveReason('');
+                  }}
+                  onReason={setRemoveReason}
+                  onKeep={() => {
+                    setRemovingId(null);
+                    setRemoveReason('');
+                  }}
                   onRemove={() => {
                     void remove(invoice);
                   }}
@@ -314,20 +348,33 @@ function paidOf(total: string, outstanding: string): string {
   return centsToMoney(Math.max(0, moneyToCents(total) - moneyToCents(outstanding)));
 }
 
+const REMOVAL_REASONS = [
+  'Entered by mistake',
+  'Duplicate bill',
+  'Customer returned the goods',
+  'Wrong customer',
+] as const;
+
 function SaleRow({
   invoice,
   canEdit,
+  showDeleted,
   busy,
   removing,
+  reason,
   onAskRemove,
+  onReason,
   onKeep,
   onRemove,
 }: {
   invoice: Sale;
   canEdit: boolean;
+  showDeleted: boolean;
   busy: boolean;
   removing: boolean;
+  reason: string;
   onAskRemove: () => void;
+  onReason: (value: string) => void;
   onKeep: () => void;
   onRemove: () => void;
 }): React.ReactElement {
@@ -358,7 +405,11 @@ function SaleRow({
                   : 'bg-amber-soft text-amber'
             }`}
           >
-            {invoice.cancelled ? 'Cancelled' : invoiceStatusLabel(invoice.status)}
+            {invoice.removed
+              ? 'Removed'
+              : invoice.cancelled
+                ? 'Cancelled'
+                : invoiceStatusLabel(invoice.status)}
           </span>
         </td>
         <td className="px-3 py-2">
@@ -379,6 +430,12 @@ function SaleRow({
           {formatShortDate(invoice.issuedAt)}
           <RecordTrail activity={invoice.activity} />
         </td>
+        {showDeleted ? (
+          <>
+            <td className="px-3 py-2 text-sm text-ink">{invoice.removalReason ?? '—'}</td>
+            <td className="px-3 py-2 text-sm text-ink2">{invoice.removedBy ?? '—'}</td>
+          </>
+        ) : null}
         <td className="px-3 py-2">
           <div className="flex flex-wrap items-center gap-1">
             <Link
@@ -402,15 +459,17 @@ function SaleRow({
                 Edit
               </span>
             )}
-            <button
-              type="button"
-              disabled={!canEdit || busy || invoice.cancelled}
-              onClick={onAskRemove}
-              className="inline-flex min-h-8 items-center gap-1 rounded-lg px-1 text-xs font-medium text-danger disabled:text-ink3"
-            >
-              <Trash2 size={14} aria-hidden="true" />
-              Remove
-            </button>
+            {showDeleted ? null : (
+              <button
+                type="button"
+                disabled={!canEdit || busy || invoice.cancelled}
+                onClick={onAskRemove}
+                className="inline-flex min-h-8 items-center gap-1 rounded-lg px-1 text-xs font-medium text-danger disabled:text-ink3"
+              >
+                <Trash2 size={14} aria-hidden="true" />
+                Remove
+              </button>
+            )}
           </div>
         </td>
       </tr>
@@ -418,8 +477,37 @@ function SaleRow({
         <tr className="border-b border-danger-soft bg-danger-soft">
           <td colSpan={9} className="px-3 py-3">
             <p className="text-sm text-ink">
-              Remove invoice #{invoice.invoiceNumber}? Stock from this sale goes back to the shelf.
+              Why is invoice #{invoice.invoiceNumber} being removed? The bill stays in Deleted
+              bills, and stock from this sale goes back to the shelf.
             </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {REMOVAL_REASONS.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  aria-pressed={reason === suggestion}
+                  onClick={() => onReason(suggestion)}
+                  className={`min-h-11 rounded-full border px-3 text-xs ${
+                    reason === suggestion
+                      ? 'border-danger bg-white text-danger'
+                      : 'border-line bg-white text-ink2'
+                  }`}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+            <label className="mt-2 grid gap-1 text-xs text-ink2">
+              Reason
+              <textarea
+                value={reason}
+                placeholder="Write the reason"
+                onChange={(event) => onReason(event.target.value)}
+                rows={2}
+                maxLength={500}
+                className="rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-action"
+              />
+            </label>
             <div className="mt-2 flex gap-2">
               <button
                 type="button"
@@ -431,11 +519,11 @@ function SaleRow({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || reason.trim().length === 0}
                 onClick={onRemove}
                 className="min-h-11 rounded-lg bg-danger px-4 text-sm font-medium text-white disabled:opacity-60"
               >
-                Remove sale
+                {busy ? 'Saving…' : 'Remove sale'}
               </button>
             </div>
           </td>

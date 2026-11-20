@@ -80,9 +80,16 @@ describe('laboratory inventory, clients, and reports', () => {
     const received = await request(app)
       .post(`/api/v1/lab/inventory/${itemId}/adjust`)
       .set('Authorization', `Bearer ${labToken}`)
-      .send({ kind: 'RECEIVED', quantity: '2', occurredOn: today, supplier: 'Blank House' });
+      .send({
+        kind: 'RECEIVED',
+        quantity: '2',
+        occurredOn: today,
+        supplier: 'Blank House',
+        unitCost: '40.00',
+      });
     assert.equal(received.status, 200);
     assert.equal(received.body.data.quantity, '5');
+    assert.equal(received.body.data.unitCost, null);
 
     const overdrawn = await request(app)
       .post(`/api/v1/lab/inventory/${itemId}/adjust`)

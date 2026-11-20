@@ -1,7 +1,19 @@
 'use client';
 
 import type { LabFeature } from '@optiworld/shared';
-import { BarChart3, Bell, Boxes, Columns3, LayoutDashboard, Settings, Users } from 'lucide-react';
+import {
+  BarChart3,
+  Bell,
+  Boxes,
+  Columns3,
+  Glasses,
+  LayoutDashboard,
+  Receipt,
+  Settings,
+  Tags,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -15,6 +27,15 @@ import { LAB_NOTIFICATIONS_CHANGED, loadUnreadNotificationCount } from './lab-no
 const NAV = [
   { href: '/laboratory/dashboard', label: 'Dashboard', icon: LayoutDashboard, feature: null },
   { href: '/laboratory/jobs', label: 'Jobs', icon: Columns3, feature: 'jobs' },
+  { href: '/laboratory/bills', label: 'Lab bills', icon: Receipt, feature: 'jobs' },
+  {
+    href: '/laboratory/income',
+    label: 'Income',
+    icon: Wallet,
+    feature: 'reports',
+    adminOnly: true,
+  },
+  { href: '/laboratory/services', label: 'Our Services', icon: Tags, feature: null },
   {
     href: '/laboratory/notifications',
     label: 'Notifications',
@@ -26,6 +47,20 @@ const NAV = [
   { href: '/laboratory/reports', label: 'Reports', icon: BarChart3, feature: 'reports' },
   { href: '/laboratory/settings', label: 'Settings', icon: Settings, feature: null },
 ] as const;
+
+function initials(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    return '?';
+  }
+  return parts
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+}
 
 export function LaboratoryShell({
   userName,
@@ -40,6 +75,7 @@ export function LaboratoryShell({
   const { data: session } = useSession();
   const [unread, setUnread] = useState(0);
   const [features, setFeatures] = useState<LabFeature[] | null>(null);
+  const [labName, setLabName] = useState('');
   const title = NAV.find((item) => pathname.startsWith(item.href))?.label ?? 'Laboratory';
 
   useEffect(() => {
@@ -52,6 +88,7 @@ export function LaboratoryShell({
       .then((profile) => {
         if (active) {
           setFeatures(profile.features);
+          setLabName(profile.laboratory.name);
         }
       })
       .catch(() => undefined);
@@ -61,6 +98,9 @@ export function LaboratoryShell({
   }, [session?.accessToken]);
 
   const visibleNav = NAV.filter((item) => {
+    if ('adminOnly' in item && item.adminOnly && role !== 'ADMIN') {
+      return false;
+    }
     if (item.feature === null || role === 'ADMIN') {
       return true;
     }
@@ -93,13 +133,25 @@ export function LaboratoryShell({
   }, [session?.accessToken]);
 
   return (
-    <div className="min-h-screen bg-canvas text-ink lg:grid lg:grid-cols-[200px_1fr]">
-      <aside className="hidden bg-navy text-white lg:flex lg:min-h-screen lg:flex-col">
-        <div className="border-b border-white/10 px-3 py-4">
-          <p className="text-md font-semibold">OptiWorld</p>
-          <p className="text-xs uppercase tracking-wide text-white/60">Laboratory</p>
+    <div className="h-dvh overflow-hidden bg-canvas text-ink lg:grid lg:grid-cols-[200px_1fr]">
+      <aside className="hidden min-h-0 bg-navy text-white lg:flex lg:h-dvh lg:flex-col">
+        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-4">
+          <span
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-action text-white"
+            aria-hidden="true"
+          >
+            <Glasses size={18} />
+          </span>
+          <span className="min-w-0">
+            {labName ? (
+              <span className="block truncate text-md font-semibold text-white">{labName}</span>
+            ) : (
+              <span className="block h-4 w-28 rounded bg-white/10" />
+            )}
+            <span className="block text-xs uppercase tracking-wide text-white/60">Laboratory</span>
+          </span>
         </div>
-        <nav className="flex-1 px-2 py-3" aria-label="Laboratory">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3" aria-label="Laboratory">
           <ul className="space-y-1">
             {visibleNav.map((item) => {
               const active = pathname.startsWith(item.href);
@@ -128,18 +180,46 @@ export function LaboratoryShell({
             })}
           </ul>
         </nav>
+        <div className="border-t border-white/10 px-3 py-3">
+          <div className="flex items-center gap-2">
+            <Link
+              href="/laboratory/settings"
+              aria-label="Open profile"
+              title="Profile"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 hover:bg-white/[0.08]"
+            >
+              <span
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/10 text-xs font-medium text-white"
+                aria-hidden="true"
+              >
+                {initials(userName)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-white">{userName}</span>
+                <span className="block truncate text-xs text-white/60">
+                  {role === 'ADMIN' ? 'Admin' : 'Technician'}
+                </span>
+              </span>
+            </Link>
+            <Link
+              href="/laboratory/settings"
+              aria-label="Settings"
+              title="Settings"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/70 hover:bg-white/[0.08] hover:text-white"
+            >
+              <Settings size={16} aria-hidden="true" />
+            </Link>
+          </div>
+        </div>
         <div className="border-t border-white/10 p-3">
-          <Link href="/laboratory/settings" className="truncate text-sm font-medium text-white">
-            {userName}
-          </Link>
-          <p className="truncate text-xs text-white/60">
-            {role === 'ADMIN' ? 'Admin' : 'Technician'}
+          <p className="px-2 text-center text-[12px] leading-4 text-white/60">
+            Powered by OptiWorld
           </p>
           <SignOutButton variant="sidebar" />
         </div>
       </aside>
-      <div className="min-w-0">
-        <header className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3 lg:px-5">
+      <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-4 py-3 lg:px-5">
           <h1 className="text-lg font-semibold">{title}</h1>
           <div className="flex flex-wrap items-center justify-end gap-2 lg:hidden">
             <nav className="flex flex-wrap justify-end gap-2" aria-label="Laboratory">
@@ -156,7 +236,7 @@ export function LaboratoryShell({
             <SignOutButton variant="header" />
           </div>
         </header>
-        <div className="px-3 py-3 lg:px-5 lg:py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 lg:px-5 lg:py-4">{children}</div>
       </div>
     </div>
   );

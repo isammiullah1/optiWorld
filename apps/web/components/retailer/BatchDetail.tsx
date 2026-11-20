@@ -162,7 +162,7 @@ export function BatchDetail({ batchId }: { batchId: string }): React.ReactElemen
           {batch.archivedBy ? ` · ${batch.archivedBy}` : ''}. Restock puts it back on the live list.
         </p>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Stat
           label="Current stock"
           value={String(batch.stockQty)}
@@ -215,6 +215,11 @@ export function BatchDetail({ batchId }: { batchId: string }): React.ReactElemen
           <Stat
             label="Average cost price"
             value={formatRupee(batch.costPrice)}
+            hint={
+              detail.lastCostPrice
+                ? `Last cost price ${formatRupee(detail.lastCostPrice)}`
+                : undefined
+            }
             icon={CircleDollarSign}
             card={NAVY_CARD}
             mark="bg-white text-navy"
@@ -255,21 +260,55 @@ export function BatchDetail({ batchId }: { batchId: string }): React.ReactElemen
           card={batch.lowStock ? AMBER_CARD : NAVY_CARD}
           mark={batch.lowStock ? 'bg-amber-soft text-amber' : 'bg-white text-navy'}
         />
-        <section className={`flex items-center gap-2.5 rounded-xl border px-3 py-3 ${AMBER_CARD}`}>
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-soft text-amber">
-            <Scale size={15} aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
+        <section
+          className={`flex h-full min-w-0 flex-col gap-2 rounded-xl border px-3 py-2.5 ${AMBER_CARD}`}
+        >
+          <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-ink3">Cost vs sale</p>
-            {showCost && detail.costTotal ? (
-              <p className="text-sm font-semibold leading-tight text-navy">
-                Cost {formatRupee(detail.costTotal)}
-              </p>
-            ) : null}
-            <p className="text-sm font-semibold leading-tight text-teal">
-              Sale {formatRupee(detail.saleTotal)}
-            </p>
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-soft text-amber">
+              <Scale size={15} aria-hidden="true" />
+            </span>
           </div>
+          <dl className="grid gap-1">
+            {showCost && detail.costTotal ? (
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-xs text-ink2">Cost incurred</dt>
+                <dd className="text-sm font-semibold leading-tight text-navy">
+                  {formatRupee(detail.costTotal)}
+                </dd>
+              </div>
+            ) : null}
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-xs text-ink2">Total sales</dt>
+              <dd className="text-sm font-semibold leading-tight text-teal">
+                {formatRupee(detail.saleTotal)}
+              </dd>
+            </div>
+            {showCost && detail.soldProfit ? (
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-xs text-ink2">Sold profit</dt>
+                <dd
+                  className={`text-sm font-semibold leading-tight ${
+                    moneyToCents(detail.soldProfit) < 0 ? 'text-danger' : 'text-teal'
+                  }`}
+                >
+                  {formatRupee(detail.soldProfit)}
+                </dd>
+              </div>
+            ) : null}
+            {showCost && detail.overallProfit ? (
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-xs text-ink2">Overall profit</dt>
+                <dd
+                  className={`text-sm font-semibold leading-tight ${
+                    moneyToCents(detail.overallProfit) < 0 ? 'text-danger' : 'text-teal'
+                  }`}
+                >
+                  {formatRupee(detail.overallProfit)}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
         </section>
       </div>
       {detail.wholesalers.length > 0 ? (
@@ -438,6 +477,7 @@ const DANGER_CARD =
 function Stat({
   label,
   value,
+  hint,
   icon: Icon,
   card,
   mark,
@@ -447,6 +487,7 @@ function Stat({
 }: {
   label: string;
   value: string;
+  hint?: string;
   icon: typeof Package;
   card: string;
   mark: string;
@@ -456,28 +497,31 @@ function Stat({
 }): React.ReactElement {
   return (
     <section
-      className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2.5 gap-y-2 rounded-xl border px-3 py-3 ${card}`}
+      className={`flex h-full min-w-0 flex-col justify-between gap-2 rounded-xl border px-3 py-2.5 ${card}`}
     >
-      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${mark}`}>
-        <Icon size={15} aria-hidden="true" />
-      </span>
-      <div className="min-w-0 text-left">
-        <p className="truncate text-xs font-medium uppercase tracking-wide text-ink3">{label}</p>
-        <p className="flex flex-wrap items-center gap-2 text-lg font-semibold text-ink">
-          {value}
-          {badge ? (
-            <span className="rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
-              Out of stock
-            </span>
-          ) : null}
-          {low && !badge ? (
-            <span className="rounded-full bg-amber-soft px-2 py-0.5 text-xs font-medium text-amber">
-              Low
-            </span>
-          ) : null}
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 text-left">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink3">{label}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-lg font-semibold leading-tight text-ink">
+            {value}
+            {badge ? (
+              <span className="rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
+                Out of stock
+              </span>
+            ) : null}
+            {low && !badge ? (
+              <span className="rounded-full bg-amber-soft px-2 py-0.5 text-xs font-medium text-amber">
+                Low
+              </span>
+            ) : null}
+          </p>
+          {hint ? <p className="mt-0.5 text-xs font-medium text-ink2">{hint}</p> : null}
+        </div>
+        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${mark}`}>
+          <Icon size={15} aria-hidden="true" />
+        </span>
       </div>
-      {aside ? <div className="col-span-2 min-w-0">{aside}</div> : null}
+      {aside ? <div className="min-w-0">{aside}</div> : null}
     </section>
   );
 }

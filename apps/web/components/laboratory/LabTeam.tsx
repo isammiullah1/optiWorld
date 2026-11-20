@@ -68,7 +68,7 @@ export function LabTeam(): React.ReactElement {
   }, [token]);
 
   return (
-    <section className="grid gap-3 rounded-xl border border-line bg-white p-4">
+    <section className="grid gap-3 rounded-xl border-2 border-amber bg-amber-soft p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-md font-semibold text-ink">Team</h3>

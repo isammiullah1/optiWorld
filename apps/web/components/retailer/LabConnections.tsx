@@ -1,12 +1,26 @@
 'use client';
 
-import type { ConnectionStatus, LabConnection, LabSearchHit } from '@optiworld/shared';
-import { ChevronDown, Eye, MapPin, Phone, UserRound, type LucideIcon } from 'lucide-react';
+import type {
+  ConnectionStatus,
+  LabConnection,
+  LabSearchHit,
+  LabServiceRow,
+} from '@optiworld/shared';
+import {
+  ChevronDown,
+  Eye,
+  MapPin,
+  Phone,
+  Receipt,
+  Tags,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
-import { formatShortDate } from './dashboard-format';
+import { formatRupee, formatShortDate } from './dashboard-format';
 
 import {
   CancelRequestButton,
@@ -24,6 +38,7 @@ import {
   connectLab,
   disconnectLab,
   loadLabConnections,
+  loadLabRateCard,
   respondToLabConnection,
   searchLabs,
 } from './lab-api';
@@ -68,6 +83,9 @@ export function LabConnections(): React.ReactElement {
   const [cancelling, setCancelling] = useState<LabConnection | null>(null);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [rateLab, setRateLab] = useState<LabConnection | null>(null);
+  const [rateRows, setRateRows] = useState<LabServiceRow[] | null>(null);
+  const [rateError, setRateError] = useState<string | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!token) {
@@ -327,6 +345,37 @@ export function LabConnections(): React.ReactElement {
                   </div>
                 </dl>
                 <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-teal bg-teal-soft px-4 text-sm font-semibold text-teal"
+                    onClick={() => {
+                      if (!token) {
+                        return;
+                      }
+                      setRateLab(lab);
+                      setRateRows(null);
+                      setRateError(null);
+                      void loadLabRateCard(token, lab.id)
+                        .then(setRateRows)
+                        .catch((caught: unknown) => {
+                          setRateError(
+                            caught instanceof Error
+                              ? caught.message
+                              : 'The services could not be loaded',
+                          );
+                        });
+                    }}
+                  >
+                    <Tags size={16} aria-hidden="true" />
+                    Services
+                  </button>
+                  <Link
+                    href={`/retailer/lab-bills?lab=${lab.id}`}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal px-4 text-sm font-semibold text-white"
+                  >
+                    <Receipt size={16} aria-hidden="true" />
+                    Lab bills
+                  </Link>
                   <Link
                     href={`/retailer/lab-jobs?lab=${lab.id}`}
                     className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-action px-4 text-sm font-semibold text-white"
@@ -420,6 +469,14 @@ export function LabConnections(): React.ReactElement {
           }}
         />
       ) : null}
+      {rateLab ? (
+        <OfferedServices
+          name={rateLab.name}
+          rows={rateRows}
+          error={rateError}
+          onClose={() => setRateLab(null)}
+        />
+      ) : null}
       {disconnecting ? (
         <DisconnectDialog
           name={disconnecting.name}
@@ -451,6 +508,93 @@ export function LabConnections(): React.ReactElement {
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+function OfferedServices({
+  name,
+  rows,
+  error,
+  onClose,
+}: {
+  name: string;
+  rows: LabServiceRow[] | null;
+  error: string | null;
+  onClose: () => void;
+}): React.ReactElement {
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-ink/40 sm:items-center"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lab-services-title"
+        className="grid max-h-[92vh] w-full max-w-lg gap-3 overflow-hidden rounded-t-xl border border-line bg-white p-4 sm:rounded-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="lab-services-title" className="text-lg font-semibold text-ink">
+              {name}
+            </h2>
+            <p className="text-sm text-ink2">
+              Services this laboratory offers, with the list price.
+            </p>
+          </div>
+          <button type="button" className="min-h-[44px] px-2 text-sm text-ink2" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <div className="max-h-[50vh] overflow-auto rounded-lg border border-line">
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr className="bg-navy text-left">
+                {['Service', 'Price'].map((heading) => (
+                  <th
+                    key={heading}
+                    className="border border-navy px-3 py-2 text-xs font-medium uppercase tracking-wide text-white"
+                  >
+                    {heading}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows === null && !error ? (
+                <tr>
+                  <td colSpan={2} className="px-3 py-4 text-sm text-ink2">
+                    Loading services…
+                  </td>
+                </tr>
+              ) : rows && rows.length > 0 ? (
+                rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="border border-line px-3 py-2 text-sm text-ink">{row.name}</td>
+                    <td className="border border-line px-3 py-2 text-sm font-semibold text-ink">
+                      {formatRupee(row.price)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={2} className="px-3 py-4 text-sm text-ink2">
+                    This laboratory has not priced a service yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

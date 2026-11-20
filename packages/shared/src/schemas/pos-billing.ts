@@ -10,6 +10,7 @@ import {
 } from '../enums/index.js';
 import { prescriptionIssuePaths, type PrescriptionReading } from '../prescription/reading.js';
 import { LinePrescriptionInputSchema } from './customers.js';
+import { LabServiceIdsSchema } from './lab-bills.js';
 
 const money = z.string().regex(/^\d{1,10}(\.\d{1,2})?$/);
 const uuid = z.string().uuid();
@@ -230,10 +231,17 @@ export const CancelInvoiceSchema = z.object({
   reason: z.string().trim().min(1, 'Write why this bill is being cancelled.').max(500),
 });
 
+export const RemoveInvoiceSchema = z.object({
+  reason: z.string().trim().min(1, 'Enter the reason.').max(500),
+});
+
+export type RemoveInvoiceRequest = z.infer<typeof RemoveInvoiceSchema>;
+
 export type CancelInvoiceRequest = z.infer<typeof CancelInvoiceSchema>;
 
 export const SendInvoiceLabSchema = z.object({
   labOrgId: uuid,
+  serviceIds: LabServiceIdsSchema,
 });
 
 export type SendInvoiceLabRequest = z.infer<typeof SendInvoiceLabSchema>;

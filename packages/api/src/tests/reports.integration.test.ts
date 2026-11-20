@@ -157,6 +157,8 @@ describe('retailer alerts and reports', () => {
       .set('Authorization', `Bearer ${token}`);
     assert.equal(sales.status, 200);
     assert.equal(sales.body.data.revenue, '100.00');
+    assert.equal(sales.body.data.costIncurred, '0.00');
+    assert.equal(sales.body.data.profit, '100.00');
     assert.equal(sales.body.data.invoiceCount, 1);
     assert.equal(sales.body.data.cashTotal, '100.00');
     assert.equal(sales.body.data.creditTotal, '0.00');
@@ -220,14 +222,45 @@ describe('retailer alerts and reports', () => {
       select: { id: true },
     });
     assert.ok(paidInvoice);
-    const removed = await request(app)
+    const missingReason = await request(app)
       .delete(`/api/v1/retailer/invoices/${paidInvoice.id}`)
       .set('Authorization', `Bearer ${token}`);
+    assert.equal(missingReason.status, 422);
+    const removed = await request(app)
+      .delete(`/api/v1/retailer/invoices/${paidInvoice.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reason: 'Entered by mistake' });
     assert.equal(removed.status, 200);
-    assert.equal(await prisma.invoice.count({ where: { id: paidInvoice.id } }), 0);
+    const stored = await prisma.invoice.findFirst({
+      where: { id: paidInvoice.id },
+      select: { cancelledAt: true },
+    });
+    assert.ok(stored?.cancelledAt);
+    const note = await prisma.auditLog.findFirst({
+      where: { entityId: paidInvoice.id, action: 'INVOICE_REMOVED' },
+      select: { metadata: true, user: { select: { name: true } } },
+    });
+    assert.equal(
+      note && typeof note.metadata === 'object' && note.metadata && 'reason' in note.metadata
+        ? note.metadata.reason
+        : null,
+      'Entered by mistake',
+    );
+    const afterRemoval = await request(app)
+      .get(`/api/v1/retailer/reports/sales?from=${today}&to=${today}`)
+      .set('Authorization', `Bearer ${token}`);
+    assert.equal(afterRemoval.status, 200);
+    const deletedRow = afterRemoval.body.data.invoices.find(
+      (invoice: { id: string }) => invoice.id === paidInvoice.id,
+    );
+    assert.equal(deletedRow.removed, true);
+    assert.equal(deletedRow.removalReason, 'Entered by mistake');
+    assert.equal(deletedRow.removedBy, note?.user?.name ?? null);
+    assert.equal(afterRemoval.body.data.revenue, '0.00');
     const outsiderDelete = await request(app)
       .delete(`/api/v1/retailer/invoices/${creditInvoice.id}`)
-      .set('Authorization', `Bearer ${otherToken}`);
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ reason: 'Entered by mistake' });
     assert.equal(outsiderDelete.status, 404);
 
     await prisma.user.update({ where: { email: ownerEmail }, data: { role: 'STAFF' } });

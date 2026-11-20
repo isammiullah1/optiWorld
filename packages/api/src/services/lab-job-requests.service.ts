@@ -194,6 +194,7 @@ export async function respondToShopRequest(
   if (!job || !job.retailerOrgId || !job.retailer) {
     throw new AppError(404, 'NOT_FOUND', 'Lab job not found');
   }
+  const retailer = job.retailer;
   if (!labJobNeedsLabDecision(job.status as JobStatus)) {
     throw new AppError(409, 'ORDER_LOCKED', 'This request is no longer waiting on the laboratory');
   }
@@ -307,7 +308,11 @@ export async function respondToShopRequest(
       : request.kind === 'CANCEL'
         ? 'cancellation rejected. The job stays as it is'
         : 'prescription change rejected. The job stays as it is';
-  await notifyRetailer(auth, job, label);
+  await notifyRetailer(
+    auth,
+    { id: job.id, referenceNumber: job.referenceNumber, lab: job.lab, retailer },
+    label,
+  );
 }
 
 async function assertNoOpenRequest(orgId: string, jobId: string): Promise<void> {

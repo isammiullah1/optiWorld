@@ -1,17 +1,20 @@
 'use client';
 
-import type {
-  LabClientRow,
-  LabRequestLists,
-  LabRetailerRequest,
-  RetailerSearchHit,
+import {
+  productTagLabel,
+  type LabClientRow,
+  type LabRequestLists,
+  type LabRetailerRequest,
+  type RetailerSearchHit,
 } from '@optiworld/shared';
-import { Check, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Eye, Receipt, X } from 'lucide-react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { formatShortDate } from '@/components/retailer/dashboard-format';
+import { formatRupee, formatShortDate } from '@/components/retailer/dashboard-format';
+import { jobStatusLabel } from '@/components/retailer/LabJobStatus';
+import { ShopMark } from '@/components/retailer/ShopMark';
 
 import {
   CancelRequestButton,
@@ -144,63 +147,20 @@ export function LabClients(): React.ReactElement {
       ) : null}
       {clients === null ? (
         <div className="h-40 animate-pulse rounded-xl border border-line bg-white" />
+      ) : clients.length === 0 ? (
+        <section className="rounded-xl border border-line bg-white p-6 text-center">
+          <h2 className="text-md font-semibold text-ink">No clients yet</h2>
+          <p className="text-sm text-ink2">Accepted shops and walk-in clients appear here.</p>
+        </section>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-line bg-white">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="text-xs uppercase text-ink3">
-                <th className="px-3 py-2 font-medium">Name</th>
-                <th className="px-3 py-2 font-medium">Phone</th>
-                <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Total jobs</th>
-                <th className="px-3 py-2 font-medium">Last job</th>
-                <th className="px-3 py-2 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clients.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-sm text-ink3">
-                    No clients yet.
-                  </td>
-                </tr>
-              ) : null}
-              {clients.map((client) => (
-                <tr key={client.id} className="border-t border-line text-xs hover:bg-canvas">
-                  <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      className="min-h-11 font-medium text-action"
-                      onClick={() => setProfileClient(client)}
-                    >
-                      {client.name}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 text-ink2">{client.phone ?? '—'}</td>
-                  <td className="px-3 py-2">
-                    <TypeBadge type={client.type} />
-                  </td>
-                  <td className="px-3 py-2">{client.totalJobs}</td>
-                  <td className="px-3 py-2 text-ink2">
-                    {client.lastJobAt ? formatWhen(client.lastJobAt) : '—'}
-                  </td>
-                  <td className="px-3 py-2">
-                    {client.type === 'OPTIWORLD' ? (
-                      <DisconnectButton
-                        onClick={() => {
-                          setDisconnectError(null);
-                          setDisconnecting(client);
-                        }}
-                      />
-                    ) : (
-                      <span className="text-ink3">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ClientList
+          clients={clients}
+          onProfile={setProfileClient}
+          onDisconnect={(client) => {
+            setDisconnectError(null);
+            setDisconnecting(client);
+          }}
+        />
       )}
       {profileClient ? (
         <ConnectionProfileCard
@@ -221,8 +181,9 @@ export function LabClients(): React.ReactElement {
           footer={
             <Link
               href={`/laboratory/clients/${profileClient.id}`}
-              className="inline-flex min-h-11 items-center text-sm font-medium text-action"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-action px-4 text-sm font-semibold text-white"
             >
+              <Eye size={16} aria-hidden="true" />
               View jobs
             </Link>
           }
@@ -260,6 +221,145 @@ export function LabClients(): React.ReactElement {
           }}
         />
       ) : null}
+    </section>
+  );
+}
+
+const CLIENT_BOX =
+  'rounded-xl border-2 border-teal bg-[color-mix(in_srgb,var(--ow-teal)_26%,white)] p-3';
+
+function ClientList({
+  clients,
+  onProfile,
+  onDisconnect,
+}: {
+  clients: LabClientRow[];
+  onProfile: (client: LabClientRow) => void;
+  onDisconnect: (client: LabClientRow) => void;
+}): React.ReactElement {
+  const [openIds, setOpenIds] = useState<string[]>([]);
+  return (
+    <section className={CLIENT_BOX}>
+      <h2 className="text-md font-semibold text-ink">Clients</h2>
+      <ul className="mt-3 grid gap-2">
+        {clients.map((client) => {
+          const open = openIds.includes(client.id);
+          return (
+            <li key={client.id} className="overflow-hidden rounded-xl border border-white/80">
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() =>
+                  setOpenIds((current) =>
+                    current.includes(client.id)
+                      ? current.filter((id) => id !== client.id)
+                      : [...current, client.id],
+                  )
+                }
+                className="flex w-full items-center gap-3 bg-white/75 px-3 py-2.5 text-left hover:bg-white"
+              >
+                <ShopMark name={client.name} logoUrl={null} size="sm" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-ink">
+                    {client.name}
+                  </span>
+                  <span className="block truncate text-sm text-ink2">
+                    {client.city?.trim() ? client.city : (client.phone ?? 'Walk-in client')}
+                  </span>
+                </span>
+                <span className="hidden text-right sm:block">
+                  <span className="block text-xs text-ink3">Live jobs</span>
+                  <span className="block text-sm font-semibold text-ink">{client.activeJobs}</span>
+                </span>
+                <span className="hidden text-right sm:block">
+                  <span className="block text-xs text-ink3">Outstanding</span>
+                  <span className="block text-sm font-semibold text-ink">
+                    {formatRupee(client.outstanding)}
+                  </span>
+                </span>
+                <TypeBadge type={client.type} />
+                <ChevronDown
+                  size={18}
+                  className={`shrink-0 text-ink2 transition-transform ${open ? 'rotate-180' : ''}`}
+                  aria-hidden="true"
+                />
+              </button>
+              {open ? (
+                <div className="grid gap-3 border-t border-white/80 bg-white/70 px-4 py-4">
+                  <dl className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg bg-white px-3 py-2">
+                      <dt className="text-xs font-medium text-ink2">Live jobs</dt>
+                      <dd className="text-lg font-semibold text-ink">{client.activeJobs}</dd>
+                    </div>
+                    <div className="rounded-lg bg-white px-3 py-2">
+                      <dt className="text-xs font-medium text-ink2">Outstanding</dt>
+                      <dd className="text-lg font-semibold text-ink">
+                        {formatRupee(client.outstanding)}
+                      </dd>
+                    </div>
+                    <div className="rounded-lg bg-white px-3 py-2">
+                      <dt className="text-xs font-medium text-ink2">All jobs</dt>
+                      <dd className="text-lg font-semibold text-ink">{client.totalJobs}</dd>
+                    </div>
+                  </dl>
+                  <p className="text-sm text-ink2">
+                    Last job {client.lastJobAt ? formatWhen(client.lastJobAt) : 'not on file'}
+                    {client.phone ? ` · ${client.phone}` : ''}
+                  </p>
+                  {client.liveJobs.length === 0 ? (
+                    <p className="text-sm text-ink3">No live jobs from this client.</p>
+                  ) : (
+                    <ul className="grid gap-2">
+                      {client.liveJobs.map((job) => (
+                        <li key={job.id}>
+                          <Link
+                            href={`/laboratory/jobs?job=${job.id}`}
+                            className="flex min-h-11 items-center justify-between gap-3 rounded-lg bg-white px-3 text-sm"
+                          >
+                            <span className="font-mono font-semibold text-action">
+                              {productTagLabel(job.referenceNumber)}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-ink">
+                              {job.patientName}
+                            </span>
+                            <span className="text-ink2">{jobStatusLabel(job.status)}</span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`/laboratory/clients/${client.id}`}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-action px-4 text-sm font-semibold text-white"
+                    >
+                      <Eye size={16} aria-hidden="true" />
+                      View jobs
+                    </Link>
+                    <Link
+                      href={`/laboratory/bills?clientId=${client.id}`}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal px-4 text-sm font-semibold text-white"
+                    >
+                      <Receipt size={16} aria-hidden="true" />
+                      Lab bills
+                    </Link>
+                    <button
+                      type="button"
+                      className="min-h-11 rounded-lg border border-line bg-white px-4 text-sm font-medium text-ink2"
+                      onClick={() => onProfile(client)}
+                    >
+                      Profile
+                    </button>
+                    {client.type === 'OPTIWORLD' ? (
+                      <DisconnectButton onClick={() => onDisconnect(client)} />
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
@@ -661,7 +761,7 @@ function RetailerLookup({
 
   return (
     <form
-      className="grid gap-3 rounded-xl border border-line bg-white p-4"
+      className="grid gap-2 rounded-xl border border-line bg-white p-4"
       onSubmit={(event) => {
         event.preventDefault();
         const term = query.trim();
@@ -684,29 +784,31 @@ function RetailerLookup({
           });
       }}
     >
-      <label className="grid gap-1 text-sm text-ink2">
-        Retailer username or ID
-        <input
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setHits([]);
-            setLookedUp(false);
-            setError(null);
-          }}
-          placeholder="Exact username or ID"
-          className="min-h-11 rounded-lg border border-line px-3 text-sm text-ink outline-none focus:border-action"
-        />
-      </label>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="grid min-w-[16rem] flex-1 gap-1 text-sm text-ink2">
+          Retailer username or ID
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setHits([]);
+              setLookedUp(false);
+              setError(null);
+            }}
+            placeholder="Exact username or ID"
+            className="min-h-11 w-full rounded-lg border border-line px-3 text-sm text-ink outline-none focus:border-action"
+          />
+        </label>
+        <button
+          type="submit"
+          className="min-h-11 shrink-0 rounded-lg bg-action px-4 text-sm font-medium text-white"
+        >
+          Find retailer
+        </button>
+      </div>
       <p className="text-xs text-ink3">
         A shop appears only when this matches the username or ID they shared with you.
       </p>
-      <button
-        type="submit"
-        className="min-h-11 justify-self-start rounded-lg bg-action px-4 text-sm font-medium text-white"
-      >
-        Find retailer
-      </button>
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}

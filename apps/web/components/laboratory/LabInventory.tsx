@@ -5,8 +5,11 @@ import {
   SaveLabInventorySchema,
   type LabInventoryItem,
 } from '@optiworld/shared';
+import { Glasses, Layers, Sparkles, Tags, type LucideIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
+
+import { formatRupee } from '@/components/retailer/dashboard-format';
 
 import { adjustLabInventory, loadLabBoard, loadLabInventory, saveLabInventory } from './lab-api';
 
@@ -72,6 +75,7 @@ export function LabInventory(): React.ReactElement {
                 <th className="px-3 py-2 font-medium">Category</th>
                 <th className="px-3 py-2 font-medium">Qty</th>
                 <th className="px-3 py-2 font-medium">Unit</th>
+                <th className="px-3 py-2 font-medium">Average cost</th>
                 <th className="px-3 py-2 font-medium">Reorder level</th>
                 <th className="px-3 py-2 font-medium">Stock</th>
                 <th className="px-3 py-2 font-medium" />
@@ -80,7 +84,7 @@ export function LabInventory(): React.ReactElement {
             <tbody>
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-sm text-ink3">
+                  <td colSpan={8} className="px-3 py-6 text-sm text-ink3">
                     No inventory items yet.
                   </td>
                 </tr>
@@ -102,6 +106,7 @@ export function LabInventory(): React.ReactElement {
                   <td className="px-3 py-2 text-ink2">{item.category}</td>
                   <td className="px-3 py-2">{item.quantity}</td>
                   <td className="px-3 py-2 text-ink2">{item.unit}</td>
+                  <td className="px-3 py-2">{item.unitCost ? formatRupee(item.unitCost) : '—'}</td>
                   <td className="px-3 py-2">{item.reorderLevel}</td>
                   <td className="px-3 py-2">
                     {item.lowStock ? (
@@ -178,12 +183,17 @@ function ItemDrawer({
     : [category, ...LAB_INVENTORY_CATEGORIES];
 
   return (
-    <aside
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-white"
-      aria-label={item ? 'Edit item' : 'Add item'}
+    <div
+      className="fixed inset-0 z-40 flex justify-end bg-ink/40"
+      role="presentation"
+      onClick={onClose}
     >
       <form
-        className="flex flex-1 flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-label={item ? 'Edit item' : 'Add item'}
+        className="flex h-full w-full max-w-md flex-col border-l-4 border-teal bg-teal-soft"
+        onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault();
           const token = session?.accessToken;
@@ -210,28 +220,38 @@ function ItemDrawer({
             .finally(() => setBusy(false));
         }}
       >
-        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        <div className="flex items-center justify-between bg-teal px-4 py-3 text-white">
           <h2 className="text-md font-semibold">{item ? 'Edit item' : 'Add item'}</h2>
-          <button type="button" className="min-h-11 px-3 text-sm text-ink2" onClick={onClose}>
+          <button type="button" className="min-h-11 px-3 text-sm text-white" onClick={onClose}>
             Close
           </button>
         </div>
         <div className="grid flex-1 content-start gap-3 overflow-y-auto px-4 py-4">
           <Field label="Name" value={name} onChange={setName} />
-          <label className="grid gap-1 text-xs text-ink2">
-            Category
-            <select
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              className="min-h-11 rounded-lg border border-line px-3 text-sm text-ink"
-            >
-              {categories.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
+          <fieldset className="grid gap-2">
+            <legend className="text-xs text-ink2">Category</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {categories.map((option) => {
+                const look = categoryLook(option);
+                const Icon = look.icon;
+                const selected = category === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={selected}
+                    className={`flex min-h-11 items-center gap-2 rounded-lg border-2 px-3 text-left text-sm font-medium ${
+                      selected ? look.tone : 'border-line bg-white text-ink2'
+                    }`}
+                    onClick={() => setCategory(option)}
+                  >
+                    <Icon size={16} aria-hidden="true" />
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
           <Field label="Quantity" value={quantity} onChange={setQuantity} />
           <Field label="Unit" value={unit} onChange={setUnit} />
           <Field label="Reorder level" value={reorderLevel} onChange={setReorderLevel} />
@@ -251,7 +271,7 @@ function ItemDrawer({
           </button>
         </div>
       </form>
-    </aside>
+    </div>
   );
 }
 
@@ -269,6 +289,7 @@ function AdjustDrawer({
   const [quantity, setQuantity] = useState('');
   const [occurredOn, setOccurredOn] = useState(new Date().toISOString().slice(0, 10));
   const [supplier, setSupplier] = useState('');
+  const [unitCost, setUnitCost] = useState('');
   const [labJobId, setLabJobId] = useState('');
   const [jobs, setJobs] = useState<{ id: string; referenceNumber: string; patientName: string }[]>(
     [],
@@ -287,22 +308,31 @@ function AdjustDrawer({
   }, [session?.accessToken]);
 
   return (
-    <aside
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-white"
-      aria-label="Adjust stock"
+    <div
+      className="fixed inset-0 z-40 flex justify-end bg-ink/40"
+      role="presentation"
+      onClick={onClose}
     >
       <form
-        className="flex flex-1 flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Adjust stock"
+        className="flex h-full w-full max-w-md flex-col border-l-4 border-amber bg-amber-soft"
+        onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault();
           const token = session?.accessToken;
           if (!token) {
             return;
           }
+          if (kind === 'RECEIVED' && unitCost.trim().length === 0) {
+            setError('Enter the cost price.');
+            return;
+          }
           setBusy(true);
           const body =
             kind === 'RECEIVED'
-              ? { kind, quantity, occurredOn, supplier }
+              ? { kind, quantity, occurredOn, supplier, unitCost: unitCost.trim() }
               : { kind, quantity, labJobId };
           void adjustLabInventory(token, item.id, body)
             .then(() => onSaved())
@@ -312,9 +342,9 @@ function AdjustDrawer({
             .finally(() => setBusy(false));
         }}
       >
-        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        <div className="flex items-center justify-between bg-amber px-4 py-3 text-ink">
           <h2 className="text-md font-semibold">Adjust {item.name}</h2>
-          <button type="button" className="min-h-11 px-3 text-sm text-ink2" onClick={onClose}>
+          <button type="button" className="min-h-11 px-3 text-sm text-ink" onClick={onClose}>
             Close
           </button>
         </div>
@@ -344,10 +374,22 @@ function AdjustDrawer({
                   type="date"
                   value={occurredOn}
                   onChange={(event) => setOccurredOn(event.target.value)}
-                  className="min-h-11 rounded-lg border border-line px-3 text-sm"
+                  className="min-h-11 rounded-lg border border-line bg-white px-3 text-sm"
                 />
               </label>
               <Field label="Supplier" value={supplier} onChange={setSupplier} />
+              <label className="grid gap-1 text-xs text-ink2">
+                Cost price <span className="text-danger">*</span>
+                <input
+                  inputMode="decimal"
+                  aria-label="Cost price per unit"
+                  value={unitCost}
+                  onChange={(event) => setUnitCost(event.target.value)}
+                  placeholder="0.00"
+                  className="min-h-11 rounded-lg border border-line bg-white px-3 text-sm text-ink focus:border-action focus:outline-none"
+                />
+                <span className="text-ink3">Price of one unit. This updates the average cost.</span>
+              </label>
             </>
           ) : (
             <label className="grid gap-1 text-xs text-ink2">
@@ -355,7 +397,7 @@ function AdjustDrawer({
               <select
                 value={labJobId}
                 onChange={(event) => setLabJobId(event.target.value)}
-                className="min-h-11 rounded-lg border border-line px-3 text-sm text-ink"
+                className="min-h-11 rounded-lg border border-line bg-white px-3 text-sm text-ink"
               >
                 <option value="">No linked job</option>
                 {jobs.map((job) => (
@@ -382,7 +424,20 @@ function AdjustDrawer({
           </button>
         </div>
       </form>
-    </aside>
+    </div>
+  );
+}
+
+const CATEGORY_LOOK: Record<string, { icon: LucideIcon; tone: string }> = {
+  'Lens blank': { icon: Glasses, tone: 'border-action bg-action-soft text-action' },
+  Coating: { icon: Sparkles, tone: 'border-amber bg-amber-soft text-amber' },
+  Material: { icon: Layers, tone: 'border-teal bg-teal-soft text-teal' },
+  Other: { icon: Tags, tone: 'border-navy bg-[var(--ow-navy-soft)] text-navy' },
+};
+
+function categoryLook(name: string): { icon: LucideIcon; tone: string } {
+  return (
+    CATEGORY_LOOK[name] ?? { icon: Tags, tone: 'border-navy bg-[var(--ow-navy-soft)] text-navy' }
   );
 }
 
@@ -401,7 +456,7 @@ function Field({
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-11 rounded-lg border border-line px-3 text-sm text-ink focus:border-action focus:outline-none"
+        className="min-h-11 rounded-lg border border-line bg-white px-3 text-sm text-ink focus:border-action focus:outline-none"
       />
     </label>
   );

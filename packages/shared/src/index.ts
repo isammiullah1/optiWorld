@@ -17,6 +17,7 @@ export * from './schemas/catalog-orders.js';
 export * from './schemas/connections.js';
 export * from './schemas/deliveries.js';
 export * from './schemas/lab-jobs.js';
+export * from './schemas/lab-bills.js';
 export * from './schemas/lab-account.js';
 export * from './schemas/lab-ops.js';
 export * from './schemas/record-activity.js';

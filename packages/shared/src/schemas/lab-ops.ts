@@ -14,12 +14,16 @@ const positiveQuantity = quantity.refine((value) => Number(value) > 0, 'Enter a 
 export const LAB_INVENTORY_CATEGORIES = ['Lens blank', 'Coating', 'Material', 'Other'] as const;
 export type LabInventoryCategory = (typeof LAB_INVENTORY_CATEGORIES)[number];
 
+const money = z.string().regex(/^\d{1,10}(\.\d{1,2})?$/);
+const signedMoney = z.string().regex(/^-?\d{1,10}(\.\d{1,2})?$/);
+
 export const LabInventoryItemSchema = z.object({
   id: uuid,
   name: z.string(),
   category: z.string(),
   quantity: quantity,
   unit: z.string(),
+  unitCost: money.nullable(),
   reorderLevel: quantity,
   lowStock: z.boolean(),
 });
@@ -38,6 +42,7 @@ export const AdjustLabStockSchema = z.discriminatedUnion('kind', [
     quantity: positiveQuantity,
     occurredOn: day,
     supplier: z.string().trim().max(120).optional().or(z.literal('')),
+    unitCost: money,
   }),
   z.object({
     kind: z.literal('USAGE'),
@@ -57,6 +62,16 @@ export const LabClientRowSchema = z.object({
   connectedAt: z.string().nullable(),
   type: z.enum(['OPTIWORLD', 'EXTERNAL']),
   totalJobs: z.number().int().nonnegative(),
+  activeJobs: z.number().int().nonnegative(),
+  outstanding: money,
+  liveJobs: z.array(
+    z.object({
+      id: uuid,
+      referenceNumber: z.string(),
+      patientName: z.string(),
+      status: z.enum(JOB_STATUSES),
+    }),
+  ),
   lastJobAt: z.string().nullable(),
 });
 
@@ -126,6 +141,157 @@ export const LabJobHistorySchema = z.object({
     }),
   ),
 });
+
+const nullableMoney = money.nullable();
+const count = z.number().int().nonnegative();
+
+export const LabIncomeQuerySchema = z.object({
+  from: day,
+  to: day,
+  party: z.string().trim().max(40).optional(),
+  service: z.string().trim().max(80).optional(),
+  billStatus: z.enum(['OPEN', 'ISSUED', 'CLEARED', 'VOID']).optional(),
+  status: z.enum(JOB_STATUSES).optional(),
+  urgent: z.enum(['true', 'false']).optional(),
+  finishedBy: uuid.optional(),
+});
+
+const partyRank = z.object({
+  id: z.string(),
+  name: z.string(),
+  jobs: count,
+  income: money,
+  outstanding: money,
+  average: money,
+});
+
+export const LabIncomeSchema = z.object({
+  from: day,
+  to: day,
+  summary: z.object({
+    finishedSales: count,
+    income: money,
+    discount: money,
+    adjustments: signedMoney,
+    collected: money,
+    outstanding: money,
+    shopIncome: money,
+    walkInIncome: money,
+    materialCost: nullableMoney,
+    profit: signedMoney.nullable(),
+    costMissing: z.boolean(),
+    openOnFinished: count,
+    openValue: money,
+    voided: count,
+  }),
+  daily: z.array(
+    z.object({
+      date: day,
+      jobs: count,
+      income: money,
+      collected: money,
+      outstanding: money,
+    }),
+  ),
+  retailers: z.array(partyRank),
+  clients: z.array(partyRank),
+  services: z.array(
+    z.object({
+      name: z.string(),
+      jobs: count,
+      quantity: count,
+      income: money,
+    }),
+  ),
+  finishers: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      jobs: count,
+      income: money,
+    }),
+  ),
+  openJobs: z.array(
+    z.object({
+      id: uuid,
+      referenceNumber: z.string(),
+      customerName: z.string(),
+      partyName: z.string(),
+      finishedOn: day,
+      total: money,
+    }),
+  ),
+  voidedJobs: z.array(
+    z.object({
+      id: uuid,
+      referenceNumber: z.string(),
+      customerName: z.string(),
+      partyName: z.string(),
+      finishedOn: day,
+      total: money,
+    }),
+  ),
+  sales: z.array(
+    z.object({
+      id: uuid,
+      referenceNumber: z.string(),
+      customerName: z.string(),
+      partyName: z.string(),
+      partyKind: z.enum(['SHOP', 'WALK_IN']),
+      finishedOn: day,
+      services: z.string(),
+      income: money,
+      materialCost: nullableMoney,
+      profit: signedMoney.nullable(),
+      costMissing: z.boolean(),
+      billStatus: z.enum(['ISSUED', 'CLEARED']),
+      finishedBy: z.string(),
+    }),
+  ),
+  usedOnSales: z.array(
+    z.object({
+      name: z.string(),
+      category: z.string(),
+      quantity: z.string(),
+      unit: z.string(),
+      jobs: count,
+      cost: nullableMoney,
+      costMissing: z.boolean(),
+    }),
+  ),
+  received: z.array(
+    z.object({
+      name: z.string(),
+      category: z.string(),
+      quantity: z.string(),
+      unit: z.string(),
+      supplier: z.string(),
+      occurredOn: day,
+      unitCost: nullableMoney,
+    }),
+  ),
+  unassignedUse: z.array(
+    z.object({
+      name: z.string(),
+      category: z.string(),
+      quantity: z.string(),
+      unit: z.string(),
+      occurredOn: day,
+    }),
+  ),
+  lowStock: z.array(
+    z.object({
+      name: z.string(),
+      category: z.string(),
+      quantity: z.string(),
+      unit: z.string(),
+      reorderLevel: z.string(),
+    }),
+  ),
+});
+
+export type LabIncomeQuery = z.infer<typeof LabIncomeQuerySchema>;
+export type LabIncome = z.infer<typeof LabIncomeSchema>;
 
 export type LabInventoryItem = z.infer<typeof LabInventoryItemSchema>;
 export type SaveLabInventoryRequest = z.infer<typeof SaveLabInventorySchema>;

@@ -20,6 +20,8 @@ import { cancellationLine } from '@/components/RecordTrail';
 
 import { formatRupee } from './dashboard-format';
 import { emptyItemPrescription, needsPrescription } from './item-prescription';
+import { loadLabRateCard } from './lab-api';
+import { LabServiceChecks, type LabServiceOption } from './LabServiceChecks';
 import { PrescriptionFields } from './PrescriptionFields';
 import {
   cancelInvoiceLab,
@@ -52,6 +54,8 @@ export function PrescriptionBillPanel({
   const prescriptionItems = receipt.items.filter((item) => item.prescription);
   const [labs, setLabs] = useState<ConnectedLab[]>([]);
   const [labId, setLabId] = useState('');
+  const [labServices, setLabServices] = useState<LabServiceOption[]>([]);
+  const [serviceIds, setServiceIds] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, ReceiptPrescription>>({});
   const [busy, setBusy] = useState(false);
   const [cancelBill, setCancelBill] = useState(false);
@@ -90,6 +94,17 @@ export function PrescriptionBillPanel({
       .then(setLabs)
       .catch(() => setLabs([]));
   }, [token]);
+
+  useEffect(() => {
+    setServiceIds([]);
+    if (!labId) {
+      setLabServices([]);
+      return;
+    }
+    void loadLabRateCard(token, labId)
+      .then(setLabServices)
+      .catch(() => setLabServices([]));
+  }, [labId, token]);
 
   useEffect(() => {
     if (!editLab || productQuery.trim().length < 2) {
@@ -454,11 +469,27 @@ export function PrescriptionBillPanel({
                   </option>
                 ))}
               </select>
+              <LabServiceChecks
+                services={labServices}
+                selected={serviceIds}
+                showPrices={false}
+                onToggle={(serviceId) =>
+                  setServiceIds((current) =>
+                    current.includes(serviceId)
+                      ? current.filter((id) => id !== serviceId)
+                      : [...current, serviceId],
+                  )
+                }
+              />
               <button
                 type="button"
-                disabled={busy || !labId}
+                disabled={busy || !labId || serviceIds.length === 0}
                 onClick={() => {
-                  void run(() => sendInvoiceLab(token, receipt.id, labId));
+                  if (serviceIds.length === 0) {
+                    onError('Choose at least one lab service.');
+                    return;
+                  }
+                  void run(() => sendInvoiceLab(token, receipt.id, labId, serviceIds));
                 }}
                 className="mt-1 h-11 rounded-lg bg-action text-sm font-medium text-white disabled:opacity-60"
               >

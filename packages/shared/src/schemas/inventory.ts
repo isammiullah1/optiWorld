@@ -126,6 +126,7 @@ export const STOCK_MOVEMENT_TYPES = [
 ] as const;
 
 const money = z.string().regex(/^\d{1,10}(\.\d{1,2})?$/);
+const signedMoney = z.string().regex(/^-?\d{1,10}(\.\d{1,2})?$/);
 const label = z.string().trim().min(1).max(40);
 
 export const INVENTORY_SORTS = ['NAME', 'STOCK', 'PRICE'] as const;
@@ -175,7 +176,7 @@ export const InventoryBatchSchema = z.object({
   outOfStock: z.boolean(),
   prescriptionRequired: z.boolean().nullable(),
   unitsSold: z.number().int().nonnegative(),
-  profit: money.nullable(),
+  profit: signedMoney.nullable(),
   archivedAt: z.string().datetime().nullable(),
   archiveReason: z.string().nullable(),
   archivedBy: z.string().nullable(),
@@ -319,6 +320,9 @@ export const InventoryDetailSchema = z.object({
   soldQty: z.number().int().nonnegative(),
   saleTotal: money,
   costTotal: money.nullable(),
+  lastCostPrice: money.nullable(),
+  soldProfit: signedMoney.nullable(),
+  overallProfit: signedMoney.nullable(),
   costReceipts: z.array(CostReceiptSchema),
   damagedEntries: z.array(DamagedEntrySchema),
 });

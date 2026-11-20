@@ -8,6 +8,7 @@ import type {
   LabRetailerRequest,
   RetailerSearchHit,
 } from '@optiworld/shared';
+import { centsToMoney, moneyToCents } from '@optiworld/shared';
 import { z } from 'zod';
 
 import { orgCardSelect, retailerSearchHit, type OrgCard } from '../lib/connection-profile.js';
@@ -28,30 +29,24 @@ export async function listLabClients(auth: AuthSessionUser): Promise<LabClientRo
   });
   const jobs = await prisma.labJob.findMany({
     where: { labOrgId },
-    select: { labClientId: true, retailerOrgId: true, createdAt: true },
+    select: {
+      id: true,
+      referenceNumber: true,
+      patientName: true,
+      status: true,
+      labClientId: true,
+      retailerOrgId: true,
+      createdAt: true,
+      labBill: { select: { status: true, total: true } },
+    },
+    orderBy: { createdAt: 'desc' },
   });
-  return clients.map((client) => {
-    const matched = jobs.filter((job) => jobMatches(job, client));
-    const last = matched.reduce<Date | null>((latest, job) => {
-      if (!latest || job.createdAt > latest) {
-        return job.createdAt;
-      }
-      return latest;
-    }, null);
-    return {
-      id: client.id,
-      name: client.name,
-      username: client.linkedOrg?.username ?? null,
-      phone: client.phone,
-      city: client.linkedOrg?.city ?? null,
-      address: client.linkedOrg?.address ?? null,
-      about: client.linkedOrg?.listingProfileNotes ?? null,
-      connectedAt: client.updatedAt.toISOString(),
-      type: client.linkedOrgId ? 'OPTIWORLD' : 'EXTERNAL',
-      totalJobs: matched.length,
-      lastJobAt: last ? last.toISOString() : null,
-    };
-  });
+  return clients.map((client) =>
+    toClientRow(
+      client,
+      jobs.filter((job) => jobMatches(job, client)),
+    ),
+  );
 }
 
 export async function listLabClientJobs(
@@ -78,7 +73,10 @@ export async function listLabClientJobs(
         ...(client.linkedOrgId ? [{ retailerOrgId: client.linkedOrgId }] : []),
       ],
     },
-    include: { statusHistory: { orderBy: { changedAt: 'asc' } } },
+    include: {
+      statusHistory: { orderBy: { changedAt: 'asc' } },
+      labBill: { select: { status: true, total: true } },
+    },
     orderBy: { createdAt: 'desc' },
   });
   const turnarounds = jobs
@@ -89,25 +87,9 @@ export async function listLabClientJobs(
       ? null
       : Math.round((turnarounds.reduce((sum, hours) => sum + hours, 0) / turnarounds.length) * 10) /
         10;
-  const last = jobs.reduce<Date | null>((latest, job) => {
-    if (!latest || job.createdAt > latest) {
-      return job.createdAt;
-    }
-    return latest;
-  }, null);
   return {
     client: {
-      id: client.id,
-      name: client.name,
-      username: client.linkedOrg?.username ?? null,
-      phone: client.phone,
-      city: client.linkedOrg?.city ?? null,
-      address: client.linkedOrg?.address ?? null,
-      about: client.linkedOrg?.listingProfileNotes ?? null,
-      connectedAt: client.updatedAt.toISOString(),
-      type: client.linkedOrgId ? 'OPTIWORLD' : 'EXTERNAL',
-      totalJobs: jobs.length,
-      lastJobAt: last ? last.toISOString() : null,
+      ...toClientRow(client, jobs),
       averageTurnaroundHours: average,
     },
     jobs: jobs.map((job) => ({
@@ -310,6 +292,73 @@ function toRequest(row: {
     about: row.linkedOrg?.listingProfileNotes ?? null,
     status: row.status,
     requestedAt: row.createdAt.toISOString(),
+  };
+}
+
+const LIVE_JOB_STATUSES = new Set<JobStatus>([
+  'SUBMITTED',
+  'CONFIRMED',
+  'RECEIVED',
+  'CUTTING',
+  'FITTING',
+  'QC',
+  'READY',
+]);
+
+function toClientRow(
+  client: {
+    id: string;
+    name: string;
+    phone: string | null;
+    linkedOrgId: string | null;
+    updatedAt: Date;
+    linkedOrg: {
+      username: string | null;
+      city: string | null;
+      address: string | null;
+      listingProfileNotes: string | null;
+    } | null;
+  },
+  jobs: readonly {
+    id: string;
+    referenceNumber: string;
+    patientName: string;
+    status: JobStatus;
+    createdAt: Date;
+    labBill: { status: string; total: { toFixed(digits: number): string } } | null;
+  }[],
+): LabClientRow {
+  const ordered = [...jobs].sort(
+    (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+  );
+  const live = ordered.filter((job) => LIVE_JOB_STATUSES.has(job.status));
+  const outstanding = ordered.reduce((sum, job) => {
+    if (job.labBill?.status !== 'ISSUED') {
+      return sum;
+    }
+    return sum + moneyToCents(job.labBill.total.toFixed(2));
+  }, 0);
+  const last = ordered[0]?.createdAt ?? null;
+  return {
+    id: client.id,
+    name: client.name,
+    username: client.linkedOrg?.username ?? null,
+    phone: client.phone,
+    city: client.linkedOrg?.city ?? null,
+    address: client.linkedOrg?.address ?? null,
+    about: client.linkedOrg?.listingProfileNotes ?? null,
+    connectedAt: client.updatedAt.toISOString(),
+    type: client.linkedOrgId ? 'OPTIWORLD' : 'EXTERNAL',
+    totalJobs: ordered.length,
+    activeJobs: live.length,
+    outstanding: centsToMoney(outstanding),
+    liveJobs: live.slice(0, 8).map((job) => ({
+      id: job.id,
+      referenceNumber: job.referenceNumber,
+      patientName: job.patientName,
+      status: job.status,
+    })),
+    lastJobAt: last ? last.toISOString() : null,
   };
 }
 

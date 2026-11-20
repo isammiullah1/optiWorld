@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
+  Bell,
   ClipboardList,
   LayoutDashboard,
   SlidersHorizontal,
@@ -26,6 +27,7 @@ export const WHOLESALER_NAV = [
     section: 'Overview',
     badge: 'pending',
   },
+  { href: '/wholesaler/notifications', label: 'Notifications', icon: Bell, section: 'Overview' },
   { href: '/wholesaler/catalog', label: 'Catalog', icon: Tags, section: 'Catalog' },
   { href: '/wholesaler/retailers', label: 'Retailers', icon: Users, section: 'Catalog' },
   {

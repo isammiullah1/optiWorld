@@ -110,11 +110,12 @@ export async function sendInvoiceLab(
   accessToken: string,
   invoiceId: string,
   labOrgId: string,
+  serviceIds: readonly string[],
 ): Promise<InvoiceNotice> {
   const response = await sendJson(
     `/api/v1/retailer/invoices/${invoiceId}/lab`,
     accessToken,
-    { labOrgId },
+    { labOrgId, serviceIds },
     NoticeResponseSchema,
   );
   return response.data;

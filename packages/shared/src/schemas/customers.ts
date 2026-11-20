@@ -247,6 +247,7 @@ export const LinePrescriptionInputSchema = withPrescriptionRules(
     savedId: uuid.optional(),
     remember: z.boolean(),
     labOrgId: uuid.optional(),
+    labServiceIds: z.array(uuid).max(20).optional(),
   }),
 );
 

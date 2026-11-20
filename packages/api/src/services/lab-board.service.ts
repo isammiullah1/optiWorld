@@ -22,6 +22,12 @@ import {
 import { billLogoPath } from '../lib/bill-logo-store.js';
 import { AppError } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
+import {
+  loadLabBillForJob,
+  openLabBill,
+  settleWalkInOpening,
+  voidLabBillForJob,
+} from './lab-bills.service.js';
 import { openShopRequest, shopRequestsForJobs } from './lab-job-requests.service.js';
 import { historyAction, labActivity } from './record-activity.js';
 
@@ -64,7 +70,14 @@ export async function listLabBoard(
     include: {
       retailer: { select: { id: true, name: true, billLogoKey: true } },
       labClient: { select: { name: true, linkedOrg: { select: { billLogoKey: true } } } },
-      statusHistory: { orderBy: { changedAt: 'desc' }, take: 8 },
+      statusHistory: {
+        orderBy: { changedAt: 'desc' },
+        take: 8,
+        include: { changedByUser: { select: { name: true } } },
+      },
+      labBill: {
+        select: { lines: { select: { serviceName: true }, orderBy: { createdAt: 'asc' } } },
+      },
     },
     orderBy: [{ isUrgent: 'desc' }, { updatedAt: 'desc' }],
     take: BOARD_LIMIT,
@@ -103,10 +116,9 @@ export async function listLabBoard(
       status: job.status,
       isUrgent: job.isUrgent,
       rxSummary: rxSummary(job.prescription),
-      stageNote:
-        job.statusHistory.find(
-          (entry) => entry.status === job.status && !isMarkedDoneNote(entry.notes),
-        )?.notes ?? null,
+      services: job.labBill?.lines.map((line) => line.serviceName) ?? [],
+      stageNote: closingNote(job)?.notes ?? null,
+      closedByName: closingNote(job)?.changedByUser?.name ?? null,
       stageEnteredAt: stageEnteredAt(job.status, job.createdAt, job.statusHistory),
       createdAt: job.createdAt.toISOString(),
       trail: [...job.statusHistory]
@@ -139,7 +151,11 @@ export async function getLabBoardJob(auth: AuthSessionUser, jobId: string): Prom
 export async function createLabBoardJob(
   auth: AuthSessionUser,
   input: CreateLabBoardJobRequest,
-): Promise<{ id: string; referenceNumber: string }> {
+): Promise<{
+  id: string;
+  referenceNumber: string;
+  invoice: Awaited<ReturnType<typeof loadLabBillForJob>>;
+}> {
   const labOrgId = requireLab(auth);
   const linked = await resolveJobClient(labOrgId, input.labClientId, input.retailerOrgId);
   const requested = input.referenceNumber?.trim() ?? '';
@@ -157,24 +173,43 @@ export async function createLabBoardJob(
       );
     }
   }
-  const created = await prisma.labJob.create({
-    data: {
+  const created = await prisma.$transaction(async (tx) => {
+    const job = await tx.labJob.create({
+      data: {
+        labOrgId,
+        retailerOrgId: linked.retailerOrgId,
+        labClientId: linked.labClientId,
+        referenceNumber,
+        patientName: input.patientName.trim(),
+        patientPhone: input.patientPhone.trim(),
+        prescription: input.prescription,
+        frameDetails: boardFrame(input),
+        lensDetails: boardLens(input),
+        specialInstructions: blankToNull(input.specialInstructions),
+        status: 'RECEIVED',
+        statusHistory: { create: { status: 'RECEIVED', changedByUserId: auth.userId } },
+      },
+      select: { id: true, referenceNumber: true },
+    });
+    await openLabBill(tx, {
       labOrgId,
       retailerOrgId: linked.retailerOrgId,
       labClientId: linked.labClientId,
-      referenceNumber,
-      patientName: input.patientName.trim(),
-      patientPhone: input.patientPhone.trim(),
-      prescription: input.prescription,
-      frameDetails: boardFrame(input),
-      lensDetails: boardLens(input),
-      specialInstructions: blankToNull(input.specialInstructions),
-      status: 'RECEIVED',
-      statusHistory: { create: { status: 'RECEIVED', changedByUserId: auth.userId } },
-    },
-    select: { id: true, referenceNumber: true },
+      labJobId: job.id,
+      retailerInvoiceId: null,
+      serviceIds: input.serviceIds,
+      servicePrices: input.servicePrices,
+    });
+    if (!linked.retailerOrgId && !linked.labClientId) {
+      await settleWalkInOpening(tx, job.id, input.amountReceived, auth.userId);
+    }
+    return job;
   });
-  return created;
+  const invoice =
+    !linked.retailerOrgId && !linked.labClientId
+      ? await loadLabBillForJob(labOrgId, created.id)
+      : null;
+  return { ...created, invoice };
 }
 
 export async function updateLabJobStatus(
@@ -375,6 +410,7 @@ export async function cancelLabJob(
     throw new AppError(409, 'ORDER_LOCKED', 'A completed job cannot be cancelled.');
   }
   await prisma.$transaction(async (tx) => {
+    await voidLabBillForJob(tx, jobId);
     await tx.labJob.update({ where: { id: jobId }, data: { status: 'CANCELLED' } });
     await tx.labJobStatusHistory.create({
       data: {
@@ -469,6 +505,7 @@ export async function rejectLabJob(
     throw new AppError(422, 'VALIDATION_ERROR', 'A walk-in job is cancelled instead of rejected.');
   }
   await prisma.$transaction(async (tx) => {
+    await voidLabBillForJob(tx, jobId);
     await tx.labJob.update({ where: { id: jobId }, data: { status: 'REJECTED' } });
     await tx.labJobStatusHistory.create({
       data: {
@@ -714,6 +751,19 @@ function toBoardJob(job: Awaited<ReturnType<typeof loadOwnedJob>>): LabBoardJob 
     shopRequest: null,
   };
   return { ...detail, isUrgent: job.isUrgent, retailerName: job.retailer?.name ?? null };
+}
+
+function closingNote(job: {
+  status: JobStatus;
+  statusHistory: readonly {
+    status: JobStatus;
+    notes: string | null;
+    changedByUser: { name: string } | null;
+  }[];
+}): { notes: string | null; changedByUser: { name: string } | null } | undefined {
+  return job.statusHistory.find(
+    (entry) => entry.status === job.status && !isMarkedDoneNote(entry.notes),
+  );
 }
 
 function stageEnteredAt(

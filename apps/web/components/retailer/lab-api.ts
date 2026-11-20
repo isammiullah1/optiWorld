@@ -1,7 +1,9 @@
 'use client';
 
 import {
+  LabBillSchema,
   LabConnectionSchema,
+  LabServiceSchema,
   LabSaleOptionSchema,
   type CreateDirectLabJobRequest,
   type LabSaleOption,
@@ -10,7 +12,9 @@ import {
   LabSearchHitSchema,
   type CreateLabJobRequest,
   type JobStatus,
+  type LabBill,
   type LabConnection,
+  type LabServiceRow,
   type LabJobDetail,
   type LabJobRow,
   type LabSearchHit,
@@ -51,6 +55,95 @@ export class LabRequestError extends Error {
     this.name = 'LabRequestError';
     this.code = code;
   }
+}
+
+const ShopLabServicesSchema = z.object({
+  success: z.literal(true),
+  data: z.array(z.object({ labOrgId: z.string().uuid(), services: z.array(LabServiceSchema) })),
+});
+
+export async function loadLabRateCard(
+  accessToken: string,
+  labOrgId: string,
+): Promise<LabServiceRow[]> {
+  const response = await getJson(
+    `/api/v1/retailer/laboratories/${labOrgId}/services`,
+    accessToken,
+    z.object({ success: z.literal(true), data: z.array(LabServiceSchema) }),
+  );
+  return response.data;
+}
+
+export async function loadShopLabServices(
+  accessToken: string,
+): Promise<Array<{ labOrgId: string; services: LabServiceRow[] }>> {
+  const response = await getJson(
+    '/api/v1/retailer/lab-services',
+    accessToken,
+    ShopLabServicesSchema,
+  );
+  return response.data;
+}
+
+export async function loadRetailerLabBills(
+  accessToken: string,
+  query: { labOrgId?: string; from?: string; to?: string },
+): Promise<LabBill[]> {
+  const params = new URLSearchParams();
+  if (query.labOrgId) {
+    params.set('labOrgId', query.labOrgId);
+  }
+  if (query.from) {
+    params.set('from', query.from);
+  }
+  if (query.to) {
+    params.set('to', query.to);
+  }
+  const response = await getJson(
+    `/api/v1/retailer/lab-bills?${params.toString()}`,
+    accessToken,
+    z.object({ success: z.literal(true), data: z.array(LabBillSchema) }),
+  );
+  return response.data;
+}
+
+export async function downloadRetailerLabBills(
+  accessToken: string,
+  format: 'xlsx' | 'pdf',
+  query: { from?: string; to?: string; labOrgId?: string },
+): Promise<void> {
+  const params = new URLSearchParams({ format });
+  if (query.from) {
+    params.set('from', query.from);
+  }
+  if (query.to) {
+    params.set('to', query.to);
+  }
+  if (query.labOrgId) {
+    params.set('labOrgId', query.labOrgId);
+  }
+  const response = await fetch(
+    `${API_BASE}/api/v1/retailer/lab-bills/export?${params.toString()}`,
+    {
+      headers: { authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!response.ok) {
+    throw new Error('The lab expense sheet could not be downloaded');
+  }
+  await saveDownload(response, `lab-expense.${format}`);
+}
+
+async function saveDownload(response: Response, filename: string): Promise<void> {
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 export async function loadLabConnections(accessToken: string): Promise<LabConnection[]> {

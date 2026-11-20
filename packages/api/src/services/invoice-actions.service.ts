@@ -74,22 +74,39 @@ export async function clearInvoiceCredit(
 export async function removeInvoice(
   auth: AuthSessionUser,
   invoiceId: string,
+  reason: string,
 ): Promise<{ id: string }> {
   const orgId = requiredRetailerOrgId(auth);
+  const savedReason = reason.trim();
+  if (savedReason.length === 0) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Enter the reason.');
+  }
   await prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findFirst({
       where: { id: invoiceId, orgId },
       select: {
         id: true,
         invoiceNumber: true,
+        cancelledAt: true,
         items: { select: { inventoryBatchId: true, quantity: true, stockShortfall: true } },
-        labJobs: { select: { id: true } },
+        labJobs: { select: { id: true, status: true } },
+        labBills: { select: { status: true } },
       },
     });
     if (!invoice) {
       throw new AppError(404, 'NOT_FOUND', 'Invoice was not found');
     }
-    if (invoice.labJobs.length > 0) {
+    if (invoice.cancelledAt) {
+      throw new AppError(409, 'ORDER_LOCKED', 'This bill is already removed');
+    }
+    if (invoice.labBills.some((bill) => bill.status !== 'VOID')) {
+      throw new AppError(
+        422,
+        'VALIDATION_ERROR',
+        'This sale has a lab bill that is still open or paid',
+      );
+    }
+    if (invoice.labJobs.some((job) => job.status !== 'CANCELLED' && job.status !== 'REJECTED')) {
       throw new AppError(
         422,
         'VALIDATION_ERROR',
@@ -106,8 +123,10 @@ export async function removeInvoice(
         data: { stockQty: { increment: restore } },
       });
     }
-    await tx.payment.deleteMany({ where: { invoiceId: invoice.id, orgId } });
-    await tx.invoice.delete({ where: { id: invoice.id } });
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: { cancelledAt: new Date() },
+    });
     await tx.auditLog.create({
       data: {
         orgId,
@@ -115,7 +134,7 @@ export async function removeInvoice(
         action: 'INVOICE_REMOVED',
         entityType: 'Invoice',
         entityId: invoice.id,
-        metadata: { invoiceNumber: invoice.invoiceNumber },
+        metadata: { invoiceNumber: invoice.invoiceNumber, reason: savedReason },
       },
     });
   });

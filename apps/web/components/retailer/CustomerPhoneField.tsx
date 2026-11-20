@@ -80,7 +80,7 @@ export function CustomerPhoneField({
       : `${selected.min}–${selected.max} digits`;
 
   return (
-    <div className="relative grid gap-1 text-xs text-ink2">
+    <div className="relative grid min-w-0 gap-1 text-xs text-ink2">
       <span className="inline-flex items-center gap-1">
         {icon === 'message' ? (
           <WhatsAppMark size={14} />
@@ -90,7 +90,7 @@ export function CustomerPhoneField({
         {label}
         {required ? <span className="text-danger">*</span> : null}
       </span>
-      <div className="flex gap-2">
+      <div className="flex min-w-0 gap-2">
         <button
           type="button"
           aria-label="Country code"

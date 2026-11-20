@@ -1,6 +1,10 @@
 import type { Request, Response } from 'express';
 
-import { ReportExportSchema, ReportRangeQuerySchema } from '@optiworld/shared';
+import {
+  InventoryReportQuerySchema,
+  ReportExportSchema,
+  ReportRangeQuerySchema,
+} from '@optiworld/shared';
 
 import { asyncHandler } from '../lib/async-handler.js';
 import { AppError } from '../lib/errors.js';
@@ -9,6 +13,7 @@ import {
   exportReportPdf,
   exportReportWorkbook,
   getCreditReport,
+  getCustomerReport,
   getInventoryReport,
   getSalesReport,
 } from '../services/reports.service.js';
@@ -21,8 +26,18 @@ export function createReportsController() {
       res.status(200).json({ success: true, data });
     }),
     inventory: asyncHandler(async (req: Request, res: Response) => {
+      const query = InventoryReportQuerySchema.parse(req.query);
+      const data = await getInventoryReport(
+        requireSession(req),
+        query.from,
+        query.to,
+        query.quietDays,
+      );
+      res.status(200).json({ success: true, data });
+    }),
+    customers: asyncHandler(async (req: Request, res: Response) => {
       const query = ReportRangeQuerySchema.parse(req.query);
-      const data = await getInventoryReport(requireSession(req), query.from, query.to);
+      const data = await getCustomerReport(requireSession(req), query.from, query.to);
       res.status(200).json({ success: true, data });
     }),
     credit: asyncHandler(async (req: Request, res: Response) => {
@@ -45,12 +60,14 @@ export function createReportsController() {
               input.reportType,
               input.dateRange.from,
               input.dateRange.to,
+              input.quietDays ?? 60,
             )
           : await exportReportWorkbook(
               session,
               input.reportType,
               input.dateRange.from,
               input.dateRange.to,
+              input.quietDays ?? 60,
             );
       res.setHeader('Content-Type', spreadsheetType(file.filename));
       res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);

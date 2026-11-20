@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { createCatalogOrdersController } from '../controllers/catalog-orders.controller.js';
+import { createLabBillsController } from '../controllers/lab-bills.controller.js';
 import { createLabJobsController } from '../controllers/lab-jobs.controller.js';
 import { createCustomersController } from '../controllers/customers.controller.js';
 import { createDeliveriesController } from '../controllers/deliveries.controller.js';
@@ -34,6 +35,7 @@ export function createRetailerRouter(): Router {
   const ledger = createLedgerController();
   const catalog = createCatalogOrdersController();
   const labJobs = createLabJobsController();
+  const labBills = createLabBillsController();
   const deliveries = createDeliveriesController();
   const account = createRetailerAccountController();
   const billing = requireRetailerFeature('billing');
@@ -135,6 +137,7 @@ export function createRetailerRouter(): Router {
   router.patch('/alerts/read-all', ...retailer, dashboard.readAllAlerts);
   router.patch('/alerts/:id/read', ...retailer, dashboard.readAlert);
   router.get('/reports/sales', ...retailer, reportsFeature, reports.sales);
+  router.get('/reports/customers', ...retailer, reportsFeature, reports.customers);
   router.get('/reports/inventory', ...retailerOwner, reports.inventory);
   router.get('/reports/credit', ...retailerOwner, reports.credit);
   router.post('/reports/export', ...retailer, reportsFeature, reports.exportReport);
@@ -185,6 +188,15 @@ export function createRetailerRouter(): Router {
   );
   router.get('/lab-jobs/sales', ...retailer, labJobsFeature, labJobs.sales);
   router.post('/lab-jobs', ...retailer, labJobsFeature, labJobs.createDirect);
+  router.get('/lab-services', ...retailer, labJobsFeature, labBills.shopServices);
+  router.get(
+    '/laboratories/:labOrgId/services',
+    ...retailer,
+    laboratories,
+    labBills.labServicesForShop,
+  );
+  router.get('/lab-bills/export', ...retailerOwner, labBills.shopExport);
+  router.get('/lab-bills', ...retailer, labJobsFeature, labBills.shopBills);
   router.get('/lab-jobs', ...retailer, labJobsFeature, labJobs.list);
   router.post('/lab-jobs/:id/completion', ...retailer, labJobsFeature, labJobs.completion);
   router.post('/lab-jobs/:id/reopen', ...retailer, labJobsFeature, labJobs.reopen);

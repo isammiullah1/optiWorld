@@ -415,6 +415,7 @@ async function syncOneInvoice(
                 }
               : null,
             labOrgId: item.prescription?.labOrgId,
+            serviceIds: item.prescription?.labServiceIds,
           };
         }),
       });

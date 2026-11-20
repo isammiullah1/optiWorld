@@ -981,6 +981,9 @@ async function loadBatchFigures(
     | 'soldQty'
     | 'saleTotal'
     | 'costTotal'
+    | 'lastCostPrice'
+    | 'soldProfit'
+    | 'overallProfit'
     | 'costReceipts'
     | 'damagedEntries'
   >
@@ -1008,6 +1011,7 @@ async function loadBatchFigures(
   let damagedQty = 0;
   let lostQty = 0;
   let acquiredCost = 0;
+  let lastUnit: number | null = null;
   const costReceipts: CostReceipt[] = [];
   const damagedDrafts: Array<{
     id: string;
@@ -1023,6 +1027,9 @@ async function loadBatchFigures(
     ) {
       const noted = unitCostFromNote(movement.note);
       const unit = noted ?? fallbackUnit;
+      if (noted !== null) {
+        lastUnit = noted;
+      }
       acquiredQty += movement.quantityChange;
       acquiredCost += movement.quantityChange * unit;
       if (includeCost) {
@@ -1095,12 +1102,18 @@ async function loadBatchFigures(
       reason: entry.reason,
     }))
     .reverse();
+  const averageUnit = acquiredQty > 0 ? Math.round(acquiredCost / acquiredQty) : fallbackUnit;
+  const soldProfit = saleCents - soldQty * averageUnit;
+  const overallProfit = saleCents - acquiredCost;
   return {
     acquiredQty,
     damagedQty,
     soldQty,
     saleTotal: centsToMoney(saleCents),
     costTotal: includeCost ? centsToMoney(acquiredCost) : null,
+    lastCostPrice: includeCost ? centsToMoney(lastUnit ?? fallbackUnit) : null,
+    soldProfit: includeCost ? centsToMoney(soldProfit) : null,
+    overallProfit: includeCost ? centsToMoney(overallProfit) : null,
     costReceipts: includeCost ? costReceipts : [],
     damagedEntries,
   };

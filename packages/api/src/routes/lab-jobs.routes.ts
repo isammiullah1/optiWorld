@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import { createLabBillsController } from '../controllers/lab-bills.controller.js';
 import { createLabAccountController } from '../controllers/lab-account.controller.js';
 import { createLabJobsController } from '../controllers/lab-jobs.controller.js';
 import { createLabOpsController } from '../controllers/lab-ops.controller.js';
@@ -57,6 +58,7 @@ export function createLabRouter(): Router {
   const jobs = createLabJobsController();
   const ops = createLabOpsController();
   const account = createLabAccountController();
+  const bills = createLabBillsController();
   router.get('/profile', ...laboratory, account.profile);
   router.patch('/profile', ...labAdmin, account.updateProfile);
   router.patch('/account', ...laboratory, account.updateAccount);
@@ -106,6 +108,8 @@ export function createLabRouter(): Router {
   );
   router.get('/clients', ...laboratory, requireLabFeature('clients'), ops.clients);
   router.get('/clients/:id/jobs', ...laboratory, requireLabFeature('clients'), ops.clientJobs);
+  router.get('/income/export', ...labAdmin, requireLabFeature('reports'), ops.exportIncome);
+  router.get('/income', ...labAdmin, requireLabFeature('reports'), ops.income);
   router.get('/reports/job-activity', ...laboratory, requireLabFeature('reports'), ops.jobActivity);
   router.get('/reports/turnaround', ...laboratory, requireLabFeature('reports'), ops.turnaround);
   router.get(
@@ -115,6 +119,17 @@ export function createLabRouter(): Router {
     ops.exportJobHistory,
   );
   router.get('/reports/job-history', ...laboratory, requireLabFeature('reports'), ops.jobHistory);
+  router.get('/services', ...laboratory, bills.services);
+  router.post('/services', ...labAdmin, bills.createService);
+  router.patch('/services/:id', ...labAdmin, bills.updateService);
+  router.get('/bills/export', ...labAdmin, bills.labExport);
+  router.get('/bills', ...laboratory, requireLabFeature('jobs'), bills.labBills);
+  router.patch('/bills/:id', ...labAdmin, bills.updateBill);
+  router.post('/bills/:id/lines', ...labAdmin, bills.addLine);
+  router.post('/bills/:id/issue', ...labAdmin, bills.issue);
+  router.post('/bills/:id/clear', ...labAdmin, bills.clear);
+  router.post('/bills/:id/collect', ...labAdmin, bills.collect);
+  router.post('/bills/:id/adjustments', ...labAdmin, bills.adjust);
   router.get('/jobs/next-reference', ...laboratory, requireLabFeature('jobs'), jobs.nextReference);
   router.get('/jobs', ...laboratory, requireLabFeature('jobs'), jobs.board);
   router.post('/jobs', ...laboratory, requireLabFeature('jobs'), jobs.addJob);

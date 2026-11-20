@@ -1,4 +1,5 @@
 import { prisma } from '@optiworld/db';
+import { centsToMoney, moneyToCents } from '@optiworld/shared';
 import type {
   AdjustLabStockRequest,
   AuthSessionUser,
@@ -43,7 +44,7 @@ export async function updateLabInventory(
   const labOrgId = requireLab(auth);
   const existing = await prisma.labInventory.findFirst({
     where: { id: itemId, labOrgId },
-    select: { id: true },
+    select: { id: true, unitCost: true },
   });
   if (!existing) {
     throw new AppError(404, 'NOT_FOUND', 'That inventory item could not be found');
@@ -56,6 +57,7 @@ export async function updateLabInventory(
       quantity: input.quantity,
       unit: input.unit.trim(),
       reorderLevel: input.reorderLevel,
+      unitCost: milli(input.quantity) === 0 ? null : existing.unitCost,
     },
   });
   return toItem(updated);
@@ -77,6 +79,20 @@ export async function adjustLabStock(
   if (next < 0) {
     throw new AppError(422, 'VALIDATION_ERROR', 'Stock cannot go below zero');
   }
+  const receivedCost = input.kind === 'RECEIVED' ? moneyToCents(input.unitCost) : null;
+  const currentCost = item.unitCost ? moneyToCents(item.unitCost.toFixed(2)) : null;
+  const nextCost =
+    input.kind === 'RECEIVED' && receivedCost !== null
+      ? averageUnitCost(current, currentCost, delta, receivedCost)
+      : next === 0
+        ? null
+        : currentCost;
+  const movementCost =
+    input.kind === 'RECEIVED'
+      ? centsToMoney(receivedCost ?? 0)
+      : currentCost === null
+        ? null
+        : centsToMoney(currentCost);
   let labJobId: string | null = null;
   if (input.kind === 'USAGE' && input.labJobId && input.labJobId.length > 0) {
     const job = await prisma.labJob.findFirst({
@@ -92,7 +108,7 @@ export async function adjustLabStock(
   const updated = await prisma.$transaction(async (tx) => {
     const saved = await tx.labInventory.update({
       where: { id: item.id },
-      data: { quantity: balance },
+      data: { quantity: balance, unitCost: nextCost === null ? null : centsToMoney(nextCost) },
     });
     await tx.labStockMovement.create({
       data: {
@@ -100,6 +116,7 @@ export async function adjustLabStock(
         itemId: item.id,
         kind: input.kind,
         quantity: input.quantity,
+        unitCost: movementCost,
         balanceAfter: balance,
         supplier: input.kind === 'RECEIVED' ? blankToNull(input.supplier) : null,
         labJobId,
@@ -119,6 +136,7 @@ function toItem(row: {
   category: string;
   quantity: { toString(): string };
   unit: string;
+  unitCost: { toFixed(digits: number): string } | null;
   reorderLevel: { toString(): string };
 }): LabInventoryItem {
   const quantity = formatQty(row.quantity.toString());
@@ -129,9 +147,26 @@ function toItem(row: {
     category: row.category,
     quantity,
     unit: row.unit,
+    unitCost: row.unitCost ? row.unitCost.toFixed(2) : null,
     reorderLevel,
     lowStock: milli(quantity) <= milli(reorderLevel),
   };
+}
+
+function averageUnitCost(
+  currentMilli: number,
+  currentUnitCents: number | null,
+  addMilli: number,
+  addUnitCents: number,
+): number | null {
+  if (currentMilli > 0 && currentUnitCents === null) {
+    return null;
+  }
+  const nextMilli = currentMilli + addMilli;
+  if (nextMilli <= 0) {
+    return null;
+  }
+  return Math.round((currentMilli * (currentUnitCents ?? 0) + addMilli * addUnitCents) / nextMilli);
 }
 
 function milli(value: string): number {

@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 
 const PANEL_TONE = {
@@ -31,11 +31,13 @@ export function SettingsPanel({
 }: {
   title: string;
   description: string;
-  icon: React.ComponentType<{
-    size?: number;
-    className?: string;
-    'aria-hidden'?: boolean | 'true';
-  }>;
+  icon:
+    | LucideIcon
+    | ((props: {
+        size?: number;
+        className?: string;
+        'aria-hidden'?: boolean | 'true';
+      }) => React.ReactElement);
   tone: keyof typeof PANEL_TONE;
   defaultOpen?: boolean;
   children: React.ReactNode;

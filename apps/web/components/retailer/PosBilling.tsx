@@ -39,6 +39,7 @@ import { hasFilledPrescription, linePrescription, needsPrescription } from './it
 import { LinePrescriptionDialog } from './LinePrescriptionDialog';
 import type { CartLine } from './SaleCart';
 import { loadRetailerSettings } from './inventory-api';
+import { loadShopLabServices } from './lab-api';
 import { resolveBillLogoUrl } from './ShopMark';
 import {
   createPosInvoice,
@@ -73,6 +74,9 @@ export function PosBilling(): React.ReactElement {
   const [savedPrescriptions, setSavedPrescriptions] = useState<SavedPrescription[]>([]);
   const [rxLineId, setRxLineId] = useState<string | null>(null);
   const [labs, setLabs] = useState<Array<{ id: string; name: string }>>([]);
+  const [servicesByLab, setServicesByLab] = useState<
+    Record<string, Array<{ id: string; name: string; price: string }>>
+  >({});
   const [billLabId, setBillLabId] = useState('');
   const [assignAllToLab, setAssignAllToLab] = useState(false);
   const [shopName, setShopName] = useState('');
@@ -207,6 +211,15 @@ export function PosBilling(): React.ReactElement {
     void loadConnectedLabs(token)
       .then(setLabs)
       .catch(() => setLabs([]));
+    void loadShopLabServices(token)
+      .then((groups) => {
+        const next: Record<string, Array<{ id: string; name: string; price: string }>> = {};
+        for (const group of groups) {
+          next[group.labOrgId] = group.services;
+        }
+        setServicesByLab(next);
+      })
+      .catch(() => setServicesByLab({}));
     void loadRetailerSettings(token)
       .then((settings) => {
         const contact = [settings.phone, settings.address, settings.city]
@@ -358,6 +371,21 @@ export function PosBilling(): React.ReactElement {
     });
   }
 
+  function toggleLabService(lineId: string, serviceId: string): void {
+    setLines((current) =>
+      current.map((line) => {
+        if (line.inventoryBatchId !== lineId || !line.prescription) {
+          return line;
+        }
+        const selected = line.prescription.labServiceIds ?? [];
+        const labServiceIds = selected.includes(serviceId)
+          ? selected.filter((id) => id !== serviceId)
+          : [...selected, serviceId];
+        return { ...line, prescription: { ...line.prescription, labServiceIds } };
+      }),
+    );
+  }
+
   function attachLinePrescription(
     id: string,
     value: SavedPrescription | ItemPrescription,
@@ -444,6 +472,7 @@ export function PosBilling(): React.ReactElement {
       ...(draft.dateOfBirth ? { dateOfBirth: draft.dateOfBirth } : {}),
       referredBy: draft.referredBy,
       creditLimit: draft.creditLimit || '0.00',
+      currentCredit: '0.00',
     });
     setDraft((current) => ({
       ...current,
@@ -602,8 +631,17 @@ export function PosBilling(): React.ReactElement {
               moneyToCents(amountReceived.trim()) <= moneyToCents(totals.total))) &&
           (!deliverNow ||
             (deliveryAddress.trim().length > 0 &&
-              /^\d{1,10}(\.\d{1,2})?$/.test(deliveryCharge.trim())))
+              /^\d{1,10}(\.\d{1,2})?$/.test(deliveryCharge.trim()))) &&
+          lines.every((line) => {
+            const labId = assignAllToLab ? billLabId : line.prescription?.labOrgId;
+            if (!labId || !line.prescription) {
+              return true;
+            }
+            return (line.prescription.labServiceIds?.length ?? 0) > 0;
+          })
         }
+        servicesByLab={servicesByLab}
+        onToggleLabService={toggleLabService}
         customer={
           <BillCustomerSection
             draft={draft}

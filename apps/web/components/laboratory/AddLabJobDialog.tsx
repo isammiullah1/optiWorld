@@ -1,23 +1,38 @@
 'use client';
 
 import {
+  centsToMoney,
   CreateLabBoardJobSchema,
   isShopPhone,
+  moneyToCents,
   prescriptionIssues,
   productTagLabel,
   shopPhoneMessage,
+  type LabBill,
   type LabClientRow,
   type LabInventoryItem,
   type PrescriptionIssueKey,
   type PrescriptionReading,
 } from '@optiworld/shared';
+import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { CustomerPhoneField } from '@/components/retailer/CustomerPhoneField';
+import { formatRupee } from '@/components/retailer/dashboard-format';
 import { emptyItemPrescription } from '@/components/retailer/item-prescription';
 import { PrescriptionFields } from '@/components/retailer/PrescriptionFields';
 
-import { createLabBoardJob, loadLabInventory, reserveLabReference } from './lab-api';
+import {
+  createLabBoardJob,
+  loadLabInventory,
+  loadOwnLabServices,
+  reserveLabReference,
+} from './lab-api';
+import {
+  LabServiceChecks,
+  labServiceChargeCents,
+  type LabServiceOption,
+} from '@/components/retailer/LabServiceChecks';
 
 const RECEIVED_SAMPLE = 'Received Sample';
 const LENS_NAMES = ['Blue Cut', 'CR-39', 'Photochromic', 'Progressive HD'] as const;
@@ -26,17 +41,10 @@ const FRAME_NAMES = ['Acetate', 'Metal', 'Combination'] as const;
 const FRAME_TYPES = ['Full rim', 'Half rim', 'Rimless', 'Nylon'] as const;
 
 const fieldClass =
-  'min-h-11 rounded-lg border border-line px-3 text-sm text-ink outline-none focus:border-action';
+  'box-border h-11 w-full min-w-0 max-w-full rounded-lg border bg-white px-3 text-sm text-ink outline-none focus:border-action';
 
-type RequiredField = 'name' | 'lensName' | 'lensType' | 'frameName' | 'frameType';
-
-const REQUIRED_COPY: Record<RequiredField, string> = {
-  name: 'Enter the customer name.',
-  lensName: 'Enter the lens name.',
-  lensType: 'Enter the lens type.',
-  frameName: 'Enter the frame name.',
-  frameType: 'Enter the frame type.',
-};
+const NAME_REQUIRED = 'Enter the customer name.';
+const PRODUCT_REQUIRED = 'Enter at least one lens or frame detail.';
 
 export function AddLabJobDialog({
   token,
@@ -49,7 +57,7 @@ export function AddLabJobDialog({
   clients: readonly LabClientRow[];
   initialClientId: string;
   onClose: () => void;
-  onCreated: (referenceNumber: string) => void;
+  onCreated: (referenceNumber: string, invoice: LabBill | null) => void;
 }): React.ReactElement {
   const [serial, setSerial] = useState<string | null>(null);
   const [serialError, setSerialError] = useState<string | null>(null);
@@ -67,10 +75,15 @@ export function AddLabJobDialog({
   );
   const [issues, setIssues] = useState<Partial<Record<PrescriptionIssueKey, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [missing, setMissing] = useState<Partial<Record<RequiredField, string>>>({});
+  const [missingName, setMissingName] = useState<string | null>(null);
+  const [productError, setProductError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [services, setServices] = useState<LabServiceOption[]>([]);
+  const [serviceIds, setServiceIds] = useState<string[]>([]);
+  const [servicePrices, setServicePrices] = useState<Record<string, string>>({});
+  const [paymentTaken, setPaymentTaken] = useState(false);
   const [inventory, setInventory] = useState<LabInventoryItem[]>([]);
-  const fieldRefs = useRef<Partial<Record<RequiredField, HTMLInputElement | null>>>({});
+  const nameRef = useRef<HTMLInputElement | null>(null);
   const lensItems = inventory.filter((item) => isLensCategory(item.category));
   const frameItems = inventory.filter((item) => isFrameCategory(item.category));
   const lensNameSuggestions = suggestionList(
@@ -112,6 +125,12 @@ export function AddLabJobDialog({
   }, [token]);
 
   useEffect(() => {
+    void loadOwnLabServices(token)
+      .then((rows) => setServices(rows.filter((row) => row.isActive && Number(row.price) > 0)))
+      .catch(() => setServices([]));
+  }, [token]);
+
+  useEffect(() => {
     let active = true;
     void loadLabInventory(token)
       .then((items) => {
@@ -129,49 +148,83 @@ export function AddLabJobDialog({
     };
   }, [token]);
 
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape' && !busy) {
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-ink/30 p-3"
+      className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-navy/40 p-3"
       role="dialog"
+      aria-modal="true"
       aria-labelledby="add-job-title"
     >
       <form
         noValidate
-        className="grid max-h-full w-full max-w-3xl gap-2 overflow-visible rounded-xl border border-line bg-white p-3"
+        className="grid max-h-[calc(100dvh-1.5rem)] min-h-0 w-full min-w-0 max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border-2 border-navy bg-action-soft"
         onSubmit={(event) => {
           event.preventDefault();
           const nextIssues = prescriptionIssues(prescription);
           setIssues(nextIssues);
-          const gaps: Partial<Record<RequiredField, string>> = {};
-          const values: Record<RequiredField, string> = {
-            name,
-            lensName,
-            lensType,
-            frameName,
-            frameType,
-          };
-          (Object.keys(REQUIRED_COPY) as RequiredField[]).forEach((key) => {
-            if (!values[key].trim()) {
-              gaps[key] = REQUIRED_COPY[key];
-            }
-          });
-          setMissing(gaps);
+          const nameMissing = name.trim().length === 0;
+          const productFilled = [lensName, lensType, frameName, frameType].some(
+            (value) => value.trim().length > 0,
+          );
+          setMissingName(nameMissing ? NAME_REQUIRED : null);
+          setProductError(productFilled ? null : PRODUCT_REQUIRED);
           if (!isShopPhone(phone)) {
             setPhoneError(shopPhoneMessage(phone));
           } else {
             setPhoneError(null);
           }
-          const firstGap = (Object.keys(REQUIRED_COPY) as RequiredField[]).find((key) => gaps[key]);
-          if (firstGap) {
-            const target = fieldRefs.current[firstGap];
-            target?.focus();
-            target?.scrollIntoView({ block: 'center' });
+          if (nameMissing) {
+            nameRef.current?.focus();
+            nameRef.current?.scrollIntoView({ block: 'center' });
           }
-          if (!serial || Object.keys(nextIssues).length > 0 || !isShopPhone(phone) || firstGap) {
+          const walkIn = clientId.length === 0;
+          const due = labServiceChargeCents(
+            services,
+            serviceIds,
+            walkIn ? servicePrices : undefined,
+          );
+          if (serviceIds.length === 0) {
+            setFormError('Choose at least one lab service.');
+            return;
+          }
+          if (
+            walkIn &&
+            serviceIds.some((serviceId) => {
+              const service = services.find((row) => row.id === serviceId);
+              const raw = (service ? (servicePrices[serviceId] ?? service.price) : '').trim();
+              return !/^\d{1,10}(\.\d{1,2})?$/.test(raw) || moneyToCents(raw) <= 0;
+            })
+          ) {
+            setFormError('Enter a price above zero for each selected service.');
+            return;
+          }
+          if (walkIn && due > 0 && !paymentTaken) {
+            setFormError('Take the full walk-in payment before saving the job.');
+            return;
+          }
+          if (
+            !serial ||
+            Object.keys(nextIssues).length > 0 ||
+            !isShopPhone(phone) ||
+            nameMissing ||
+            !productFilled
+          ) {
             if (!serial) {
               setFormError(serialError ?? 'Wait for the product tag number.');
-            } else if (firstGap === 'name') {
-              setFormError(REQUIRED_COPY.name);
+            } else if (nameMissing) {
+              setFormError(NAME_REQUIRED);
+            } else if (!productFilled) {
+              setFormError(PRODUCT_REQUIRED);
             } else {
               setFormError(null);
             }
@@ -188,6 +241,15 @@ export function AddLabJobDialog({
             specialInstructions: instructions,
             referenceNumber: serial,
             prescription,
+            serviceIds,
+            servicePrices: walkIn
+              ? serviceIds.flatMap((serviceId) => {
+                  const service = services.find((row) => row.id === serviceId);
+                  const price = (service ? (servicePrices[serviceId] ?? service.price) : '').trim();
+                  return service ? [{ serviceId, price }] : [];
+                })
+              : undefined,
+            amountReceived: walkIn ? centsToMoney(due) : '',
           });
           if (!parsed.success) {
             setFormError(parsed.error.issues[0]?.message ?? 'Check the job details.');
@@ -196,83 +258,145 @@ export function AddLabJobDialog({
           setBusy(true);
           setFormError(null);
           void createLabBoardJob(token, parsed.data)
-            .then((created) => onCreated(created.referenceNumber))
+            .then((created) => onCreated(created.referenceNumber, created.invoice))
             .catch((caught: unknown) =>
               setFormError(caught instanceof Error ? caught.message : 'The job could not be added'),
             )
             .finally(() => setBusy(false));
         }}
       >
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 id="add-job-title" className="text-lg font-semibold text-ink">
+        <div className="flex items-start justify-between gap-3 border-b border-navy bg-navy p-4">
+          <div className="min-w-0">
+            <h2 id="add-job-title" className="text-lg font-semibold text-white">
               Add New Job
             </h2>
-            <p className="text-xs text-ink2">
+            <p className="text-sm text-white/80">
               Write the tag on the product before it leaves the bench.
             </p>
           </div>
-          <div className="rounded-lg border border-navy bg-canvas px-3 py-1.5 text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink3">Product tag</p>
-            <p className="font-mono text-lg font-semibold tracking-wide text-ink">
-              {serial ? productTagLabel(serial) : 'Assigning…'}
-            </p>
+          <div className="flex items-start gap-2">
+            <div className="rounded-xl border border-white/40 bg-white px-4 py-2 text-right">
+              <p className="text-xs font-medium uppercase tracking-wide text-action">Product tag</p>
+              <p className="font-mono text-xl font-semibold tracking-wide text-navy">
+                {serial ? productTagLabel(serial) : 'Assigning…'}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close"
+              disabled={busy}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/40 text-white disabled:opacity-50"
+              onClick={onClose}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
           </div>
         </div>
-        {serialError ? (
-          <p role="alert" className="text-sm text-danger">
-            {serialError}
-          </p>
-        ) : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-1 text-xs text-ink2" htmlFor="lab-job-customer-name">
-            Customer name
-            <input
-              id="lab-job-customer-name"
-              ref={(node) => {
-                fieldRefs.current.name = node;
-              }}
-              value={name}
-              aria-invalid={missing.name ? true : undefined}
-              onChange={(event) => {
-                setName(event.target.value);
-                setMissing((current) => ({ ...current, name: undefined }));
-              }}
-              className={inputClass(Boolean(missing.name))}
-            />
-            {missing.name ? (
-              <span role="alert" className="text-xs text-danger">
-                {missing.name}
-              </span>
-            ) : null}
-          </label>
-          <CustomerPhoneField
-            value={phone}
-            error={phoneError ?? undefined}
-            onChange={(next) => {
-              setPhone(next);
-              setPhoneError(null);
+        <div className="grid min-h-0 min-w-0 content-start gap-3 overflow-y-auto overscroll-contain bg-action-soft p-4">
+          {serialError ? (
+            <p role="alert" className="text-sm text-danger">
+              {serialError}
+            </p>
+          ) : null}
+          <fieldset className="grid min-w-0 gap-2 rounded-xl border border-action bg-white p-3">
+            <legend className="text-sm font-medium text-ink">Customer</legend>
+            <div className="grid items-start gap-3 sm:grid-cols-2">
+              <label
+                className="grid min-w-0 content-start gap-1 text-xs text-ink2"
+                htmlFor="lab-job-customer-name"
+              >
+                <span>
+                  Customer name <span className="text-danger">*</span>
+                </span>
+                <input
+                  id="lab-job-customer-name"
+                  ref={nameRef}
+                  value={name}
+                  aria-invalid={missingName ? true : undefined}
+                  onChange={(event) => {
+                    setName(event.target.value);
+                    setMissingName(null);
+                  }}
+                  className={inputClass(Boolean(missingName))}
+                />
+                {missingName ? (
+                  <span role="alert" className="text-xs text-danger">
+                    {missingName}
+                  </span>
+                ) : null}
+              </label>
+              <CustomerPhoneField
+                value={phone}
+                error={phoneError ?? undefined}
+                onChange={(next) => {
+                  setPhone(next);
+                  setPhoneError(null);
+                }}
+              />
+            </div>
+            <label className="grid min-w-0 gap-1 text-xs text-ink2">
+              Client
+              <select
+                value={clientId}
+                onChange={(event) => {
+                  setClientId(event.target.value);
+                  setPaymentTaken(false);
+                }}
+                className={`${fieldClass} border-line`}
+              >
+                <option value="">Walk-in</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+          <LabServiceChecks
+            services={services}
+            selected={serviceIds}
+            prices={clientId.length === 0 ? servicePrices : undefined}
+            onPriceChange={
+              clientId.length === 0
+                ? (serviceId, price) => {
+                    setPaymentTaken(false);
+                    setServicePrices((current) => ({ ...current, [serviceId]: price }));
+                  }
+                : undefined
+            }
+            onToggle={(serviceId) => {
+              setPaymentTaken(false);
+              setServiceIds((current) =>
+                current.includes(serviceId)
+                  ? current.filter((id) => id !== serviceId)
+                  : [...current, serviceId],
+              );
             }}
           />
-        </div>
-        <label className="grid gap-1 text-xs text-ink2">
-          Client
-          <select
-            value={clientId}
-            onChange={(event) => setClientId(event.target.value)}
-            className={fieldClass}
-          >
-            <option value="">Walk-in</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="grid gap-2">
-          <h3 className="text-sm font-semibold text-ink">Prescription</h3>
-          <div>
+          {clientId.length === 0 ? (
+            <fieldset className="grid min-w-0 gap-2 rounded-xl border border-amber bg-amber-soft p-3">
+              <legend className="text-sm font-medium text-ink">Walk-in payment</legend>
+              <p className="text-sm text-ink">
+                Amount due{' '}
+                <span className="font-semibold">
+                  {formatRupee(
+                    centsToMoney(labServiceChargeCents(services, serviceIds, servicePrices)),
+                  )}
+                </span>
+              </p>
+              <label className="flex min-h-11 items-center gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={paymentTaken}
+                  onChange={(event) => setPaymentTaken(event.target.checked)}
+                />
+                Payment taken in full
+              </label>
+            </fieldset>
+          ) : null}
+          <fieldset className="grid min-w-0 gap-2 rounded-xl border border-action bg-white p-3">
+            <legend className="text-sm font-medium text-ink">Prescription</legend>
             <PrescriptionFields
               draft={prescription}
               issues={issues}
@@ -281,103 +405,114 @@ export function AddLabJobDialog({
               showGuidance={false}
               pairedEyes
             />
+          </fieldset>
+          <fieldset className="grid min-w-0 gap-2 rounded-xl border border-action bg-white p-3">
+            <legend className="text-sm font-medium text-ink">Lens and frame</legend>
+            <p className="text-xs text-ink2">At least one of these is required.</p>
+            {productError ? (
+              <p role="alert" className="text-xs text-danger">
+                {productError}
+              </p>
+            ) : null}
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+              <RequiredInput
+                tone="blue"
+                label="Lens name"
+                value={lensName}
+                suggestions={lensNameSuggestions}
+                onChange={(value) => {
+                  setLensName(value);
+                  setProductError(null);
+                }}
+              />
+              <RequiredInput
+                tone="teal"
+                label="Lens type"
+                value={lensType}
+                suggestions={lensTypeSuggestions}
+                onChange={(value) => {
+                  setLensType(value);
+                  setProductError(null);
+                }}
+              />
+              <RequiredInput
+                tone="amber"
+                label="Frame name"
+                value={frameName}
+                suggestions={frameNameSuggestions}
+                onChange={(value) => {
+                  setFrameName(value);
+                  setProductError(null);
+                }}
+              />
+              <RequiredInput
+                tone="navy"
+                label="Frame type"
+                value={frameType}
+                suggestions={frameTypeSuggestions}
+                onChange={(value) => {
+                  setFrameType(value);
+                  setProductError(null);
+                }}
+              />
+            </div>
+          </fieldset>
+          <fieldset className="grid min-w-0 gap-2 rounded-xl border border-action bg-white p-3">
+            <legend className="text-sm font-medium text-ink">Notes</legend>
+            <label className="grid gap-1 text-xs text-ink2">
+              Special instructions
+              <textarea
+                value={instructions}
+                onChange={(event) => setInstructions(event.target.value)}
+                rows={2}
+                maxLength={500}
+                className="box-border min-h-20 w-full min-w-0 max-w-full resize-y rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-action"
+              />
+            </label>
+          </fieldset>
+        </div>
+        <div className="grid gap-3 border-t-2 border-navy bg-white p-4">
+          {formError ? (
+            <p role="alert" className="text-sm text-danger">
+              {formError}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className="min-h-11 rounded-lg border border-navy bg-white px-4 text-sm text-navy"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy || !serial}
+              className="min-h-11 rounded-lg bg-action px-4 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {busy ? 'Adding…' : 'Add to Received'}
+            </button>
           </div>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-4">
-          <RequiredInput
-            label="Lens name"
-            value={lensName}
-            message={missing.lensName}
-            suggestions={lensNameSuggestions}
-            inputRef={(node) => {
-              fieldRefs.current.lensName = node;
-            }}
-            onChange={(value) => {
-              setLensName(value);
-              setMissing((current) => ({ ...current, lensName: undefined }));
-            }}
-          />
-          <RequiredInput
-            label="Lens type"
-            value={lensType}
-            message={missing.lensType}
-            suggestions={lensTypeSuggestions}
-            inputRef={(node) => {
-              fieldRefs.current.lensType = node;
-            }}
-            onChange={(value) => {
-              setLensType(value);
-              setMissing((current) => ({ ...current, lensType: undefined }));
-            }}
-          />
-          <RequiredInput
-            label="Frame name"
-            value={frameName}
-            message={missing.frameName}
-            suggestions={frameNameSuggestions}
-            inputRef={(node) => {
-              fieldRefs.current.frameName = node;
-            }}
-            onChange={(value) => {
-              setFrameName(value);
-              setMissing((current) => ({ ...current, frameName: undefined }));
-            }}
-          />
-          <RequiredInput
-            label="Frame type"
-            value={frameType}
-            message={missing.frameType}
-            suggestions={frameTypeSuggestions}
-            inputRef={(node) => {
-              fieldRefs.current.frameType = node;
-            }}
-            onChange={(value) => {
-              setFrameType(value);
-              setMissing((current) => ({ ...current, frameType: undefined }));
-            }}
-          />
-        </div>
-        <label className="grid gap-1 text-xs text-ink2">
-          Notes/Special instructions
-          <input
-            value={instructions}
-            maxLength={500}
-            onChange={(event) => setInstructions(event.target.value)}
-            className={fieldClass}
-          />
-        </label>
-        {formError ? (
-          <p role="alert" className="text-sm text-danger">
-            {formError}
-          </p>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="submit"
-            disabled={busy || !serial}
-            className="min-h-11 rounded-lg bg-action px-4 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {busy ? 'Adding…' : 'Add to Received'}
-          </button>
-          <button
-            type="button"
-            className="min-h-11 rounded-lg border border-line px-4 text-sm text-ink2"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
         </div>
       </form>
     </div>
   );
 }
 
+const FIELD_TONES = {
+  blue: 'border-action bg-action-soft',
+  teal: 'border-teal bg-teal-soft',
+  amber: 'border-amber bg-amber-soft',
+  navy: 'border-navy bg-[color-mix(in_srgb,var(--ow-navy)_10%,white)]',
+} as const;
+
 function inputClass(invalid: boolean): string {
-  return `${fieldClass} ${invalid ? 'border-danger bg-danger-soft' : ''}`;
+  return `${fieldClass} ${invalid ? 'border-danger bg-danger-soft' : 'border-line'}`;
 }
 
 function RequiredInput({
   label,
+  tone,
   value,
   message,
   suggestions,
@@ -385,10 +520,11 @@ function RequiredInput({
   onChange,
 }: {
   label: string;
+  tone: keyof typeof FIELD_TONES;
   value: string;
   message?: string;
   suggestions: readonly string[];
-  inputRef: (node: HTMLInputElement | null) => void;
+  inputRef?: (node: HTMLInputElement | null) => void;
   onChange: (value: string) => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
@@ -401,8 +537,10 @@ function RequiredInput({
     return needle.length === 0 || item.toLowerCase().includes(needle);
   });
   return (
-    <div className="relative grid gap-1 text-xs text-ink2">
-      <span>{label}</span>
+    <div
+      className={`relative grid min-w-0 gap-1 rounded-lg border px-2 py-2 text-xs text-ink2 ${FIELD_TONES[tone]}`}
+    >
+      <span className="font-medium text-ink">{label}</span>
       <input
         ref={inputRef}
         value={value}

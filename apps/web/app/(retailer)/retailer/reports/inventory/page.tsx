@@ -1,5 +1,5 @@
-import { InventoryReport } from '@/components/retailer/InventoryReport';
+import { redirect } from 'next/navigation';
 
-export default function InventoryMovementPage(): React.ReactElement {
-  return <InventoryReport />;
+export default function InventoryMovementPage(): never {
+  redirect('/retailer/inventory');
 }

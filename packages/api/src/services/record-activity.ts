@@ -299,7 +299,7 @@ function invoiceDetails(
     return [`Cancelled this bill.${reason}`];
   }
   if (action === 'INVOICE_REMOVED') {
-    return [`Removed invoice${number}.`];
+    return [`Removed invoice${number}.${reason}`];
   }
   return ['No further detail was recorded.'];
 }

@@ -3,6 +3,7 @@ import type { AuthSessionUser } from '@optiworld/shared';
 import {
   AdjustLabStockSchema,
   ConnectRetailerSchema,
+  LabIncomeQuerySchema,
   LabJobHistoryQuerySchema,
   ReportRangeQuerySchema,
   RetailerSearchQuerySchema,
@@ -29,6 +30,7 @@ import {
   listLabInventory,
   updateLabInventory,
 } from '../services/lab-inventory.service.js';
+import { exportLabIncome, getLabIncome } from '../services/lab-income.service.js';
 import {
   exportLabJobHistory,
   getLabJobActivity,
@@ -113,6 +115,22 @@ export function createLabOpsController() {
       const query = LabJobHistoryQuerySchema.parse(req.query);
       const data = await getLabJobHistory(session(req), query);
       res.status(200).json({ success: true, data });
+    }),
+    income: asyncHandler(async (req: Request, res: Response) => {
+      const query = LabIncomeQuerySchema.parse(req.query);
+      const data = await getLabIncome(session(req), query);
+      res.status(200).json({ success: true, data });
+    }),
+    exportIncome: asyncHandler(async (req: Request, res: Response) => {
+      const query = LabIncomeQuerySchema.parse(req.query);
+      const file = await exportLabIncome(
+        session(req),
+        query,
+        req.query.format === 'pdf' ? 'pdf' : 'xlsx',
+      );
+      res.setHeader('Content-Type', spreadsheetType(file.filename));
+      res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+      res.status(200).send(file.body);
     }),
     exportJobHistory: asyncHandler(async (req: Request, res: Response) => {
       const query = LabJobHistoryQuerySchema.parse(req.query);

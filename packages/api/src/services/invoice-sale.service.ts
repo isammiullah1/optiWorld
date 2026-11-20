@@ -139,6 +139,7 @@ export async function sendInvoiceToLab(
   auth: AuthSessionUser,
   invoiceId: string,
   labOrgId: string,
+  serviceIds: readonly string[],
 ): Promise<InvoiceNotice> {
   const orgId = requireOwner(auth);
   const invoice = await loadBill(orgId, invoiceId);
@@ -163,6 +164,7 @@ export async function sendInvoiceToLab(
     prescriptionRequired: item.inventoryBatch?.prescriptionRequired ?? null,
     reading: storedReading(item.prescription),
     labOrgId,
+    serviceIds,
   }));
   if (!lines.some((line) => line.reading)) {
     throw new AppError(422, 'VALIDATION_ERROR', 'This bill has no prescription to send');
