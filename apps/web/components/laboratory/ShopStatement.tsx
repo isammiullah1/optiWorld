@@ -5,20 +5,32 @@ import { X } from 'lucide-react';
 
 import { formatRupee, formatShortDate } from '@/components/retailer/dashboard-format';
 
+import { useCloseOnEscape } from './use-close-on-escape';
+
 export function ShopStatement({
   shopName,
+  title = 'Joint bill',
   from,
   to,
   rows,
   onClose,
+  onWhatsapp,
+  whatsappBusy = false,
+  whatsappNote = null,
 }: {
   shopName: string;
+  title?: string;
   from: string;
   to: string;
   rows: readonly LabBill[];
   onClose: () => void;
+  onWhatsapp?: () => void;
+  whatsappBusy?: boolean;
+  whatsappNote?: string | null;
 }): React.ReactElement {
   const total = rows.reduce((sum, row) => sum + moneyToCents(row.total), 0);
+  const pending = title === 'Pending bills';
+  useCloseOnEscape(onClose, !whatsappBusy);
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-navy/40 p-3"
@@ -37,7 +49,7 @@ export function ShopStatement({
             {shopName}
           </h2>
           <p className="text-sm text-white/80">
-            Joint bill · {formatShortDate(`${from}T00:00:00.000Z`)} to{' '}
+            {title} · {formatShortDate(`${from}T00:00:00.000Z`)} to{' '}
             {formatShortDate(`${to}T00:00:00.000Z`)}
           </p>
         </header>
@@ -82,18 +94,46 @@ export function ShopStatement({
             </tbody>
           </table>
         </div>
-        <p className="rounded-lg bg-white px-4 py-3 text-right text-sm font-semibold text-ink">
-          {rows.length} orders · {formatRupee(centsToMoney(total))}
-        </p>
-        <div className="flex justify-end gap-2 print:hidden">
+        <div className="grid gap-3 rounded-lg border-2 border-navy bg-white px-4 py-3 sm:grid-cols-2">
+          <p>
+            <span className="block text-xs font-medium uppercase tracking-wide text-navy">
+              {pending ? 'Pending bills' : 'Bills'}
+            </span>
+            <span className="text-lg font-semibold text-ink">{rows.length}</span>
+          </p>
+          <p className="sm:text-right">
+            <span className="block text-xs font-medium uppercase tracking-wide text-navy">
+              {pending ? 'Pending charges' : 'Charges'}
+            </span>
+            <span className="text-lg font-semibold text-ink">
+              {formatRupee(centsToMoney(total))}
+            </span>
+          </p>
+        </div>
+        {whatsappNote ? (
+          <p role="status" className="rounded-lg bg-white px-4 py-3 text-sm text-ink print:hidden">
+            {whatsappNote}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap justify-end gap-2 print:hidden">
           <button
             type="button"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-navy bg-white px-4 text-sm font-semibold text-navy"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border-2 border-navy bg-white px-4 text-sm font-semibold text-navy"
             onClick={onClose}
           >
             <X size={16} aria-hidden="true" />
             Close
           </button>
+          {onWhatsapp ? (
+            <button
+              type="button"
+              disabled={whatsappBusy || rows.length === 0}
+              className="min-h-11 rounded-lg border-2 border-teal bg-teal px-4 text-sm font-semibold text-white disabled:opacity-50"
+              onClick={onWhatsapp}
+            >
+              {whatsappBusy ? 'Sending…' : 'Send to WhatsApp'}
+            </button>
+          ) : null}
           <button
             type="button"
             className="min-h-11 rounded-lg bg-action px-4 text-sm font-medium text-white"

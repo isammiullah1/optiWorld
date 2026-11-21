@@ -22,6 +22,9 @@ const STATUS_LABEL: Record<LabBill['status'], string> = {
   VOID: 'Rejected',
 };
 
+const PAGE_CHOICES = [10, 20, 30, 40] as const;
+const MAX_ROWS = 100;
+
 export function LabBills({ labOrgId }: { labOrgId?: string }): React.ReactElement {
   const { data: session } = useSession();
   const token = session?.accessToken;
@@ -126,140 +129,266 @@ export function BillTable({
   rows,
   party,
   actions,
+  pickedIds,
+  onPick,
+  canPick,
 }: {
   rows: LabBill[] | null;
   party: 'lab' | 'shop';
   actions?: (bill: LabBill) => React.ReactNode;
+  pickedIds?: ReadonlySet<string>;
+  onPick?: (bill: LabBill) => void;
+  canPick?: (bill: LabBill) => boolean;
 }): React.ReactElement {
   const [selected, setSelected] = useState<LabBill | null>(null);
+  const [pageSize, setPageSize] = useState(10);
+  const [draft, setDraft] = useState('10');
+  const [page, setPage] = useState(1);
+  const listKey = rows === null ? '' : rows.map((bill) => bill.id).join('|');
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, listKey]);
+
+  const selectable = Boolean(onPick);
+  const listed = rows ?? [];
+  const pageCount = Math.max(1, Math.ceil(listed.length / pageSize));
+  const current = Math.min(page, pageCount);
+  const start = listed.length === 0 ? 0 : (current - 1) * pageSize;
+  const visible = rows === null ? null : listed.slice(start, start + pageSize);
+
+  function applyDraft(raw: string): void {
+    const next = Number(raw);
+    if (!Number.isInteger(next) || next < 1 || next > MAX_ROWS) {
+      setDraft(String(pageSize));
+      return;
+    }
+    setPageSize(next);
+    setDraft(String(next));
+  }
+
   return (
-    <div className="overflow-x-auto rounded-xl border border-line bg-white">
-      <table className="w-full min-w-[860px] border-collapse text-left">
-        <thead>
-          <tr className="bg-navy text-left">
-            {[
-              'Job',
-              'Patient',
-              party === 'lab' ? 'Laboratory' : 'Party',
-              'Services',
-              'Status',
-              'Total',
-              'Opened',
-              ...(actions ? ['Actions'] : []),
-            ].map((heading) => (
-              <th
-                key={heading}
-                className="border border-navy px-3 py-2 text-xs font-medium uppercase tracking-wide text-white"
-              >
-                {heading}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows === null ? (
-            <tr>
-              <td colSpan={actions ? 8 : 7} className="px-3 py-6 text-sm text-ink2">
-                Loading lab bills…
-              </td>
+    <div className="overflow-hidden rounded-xl border border-line bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] border-collapse text-left">
+          <thead>
+            <tr className="bg-navy text-left">
+              {[
+                ...(selectable ? ['Select'] : []),
+                'Job',
+                'Patient',
+                party === 'lab' ? 'Laboratory' : 'Party',
+                'Services',
+                'Status',
+                'Total',
+                'Opened',
+                ...(actions ? ['Actions'] : []),
+              ].map((heading) => (
+                <th
+                  key={heading}
+                  className="border border-navy px-3 py-2 text-xs font-medium uppercase tracking-wide text-white"
+                >
+                  {heading}
+                </th>
+              ))}
             </tr>
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={actions ? 8 : 7} className="px-3 py-6 text-sm text-ink2">
-                No lab bills in this view.
-              </td>
-            </tr>
-          ) : (
-            groupBillsByDay(rows).map((group, groupIndex) => {
-              const span = actions ? 8 : 7;
-              return (
-                <Fragment key={group.day}>
-                  {groupIndex > 0 ? (
-                    <tr aria-hidden="true">
-                      <td colSpan={span} className="h-2 border-0 bg-white p-0" />
-                    </tr>
-                  ) : null}
-                  <tr>
-                    <td
-                      colSpan={span}
-                      className={`border-x-2 border-t-2 border-b-2 px-3 py-2 text-sm font-semibold text-ink ${group.edge} ${group.fill}`}
-                    >
-                      {group.label}
-                      <span className="ml-2 text-xs font-medium text-ink2">
-                        {group.rows.length} {group.rows.length === 1 ? 'bill' : 'bills'}
-                      </span>
-                    </td>
-                  </tr>
-                  {group.rows.map((bill) => {
-                    const box = `${group.fill} border-b-2 ${group.edge}`;
-                    return (
-                      <tr key={bill.id} className="hover:bg-white">
-                        <td
-                          className={`border-l-2 px-3 py-2 text-sm font-medium text-ink ${group.edge} ${box}`}
-                        >
-                          <button
-                            type="button"
-                            className="text-left font-medium text-action underline-offset-2 hover:underline"
-                            onClick={() => setSelected(bill)}
-                          >
-                            {bill.referenceNumber}
-                          </button>
-                        </td>
-                        <td className={`px-3 py-2 text-sm text-ink ${box}`}>{bill.patientName}</td>
-                        <td className={`px-3 py-2 text-sm text-ink ${box}`}>
-                          {party === 'lab'
-                            ? bill.labName
-                            : (bill.retailerName ?? bill.clientName ?? 'Walk-in')}
-                        </td>
-                        <td className={`px-3 py-2 text-sm text-ink2 ${box}`}>
-                          <button
-                            type="button"
-                            className="text-left text-ink2 underline-offset-2 hover:text-action hover:underline"
-                            onClick={() => setSelected(bill)}
-                          >
-                            {bill.lines
-                              .map((line) => `${line.serviceName} × ${line.quantity}`)
-                              .join(', ') || '—'}
-                          </button>
-                        </td>
-                        <td className={`px-3 py-2 ${box}`}>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[bill.status]} ${bill.status === 'CLEARED' ? 'border-[#16A34A]' : 'border-current'}`}
-                          >
-                            {bill.status === 'CLEARED' ? (
-                              <Check size={12} className="text-[#16A34A]" aria-hidden="true" />
-                            ) : null}
-                            {STATUS_LABEL[bill.status]}
-                          </span>
-                        </td>
-                        <td className={`px-3 py-2 text-sm font-semibold text-ink ${box}`}>
-                          <button
-                            type="button"
-                            className="text-left font-semibold text-ink underline-offset-2 hover:text-action hover:underline"
-                            onClick={() => setSelected(bill)}
-                          >
-                            {formatRupee(bill.total)}
-                          </button>
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-sm text-ink2 ${actions ? '' : `border-r-2 ${group.edge}`} ${box}`}
-                        >
-                          {formatShortDate(bill.createdAt)}
-                        </td>
-                        {actions ? (
-                          <td className={`border-r-2 px-3 py-2 ${group.edge} ${box}`}>
-                            {actions(bill)}
-                          </td>
-                        ) : null}
+          </thead>
+          <tbody>
+            {rows === null ? (
+              <tr>
+                <td
+                  colSpan={(selectable ? 1 : 0) + (actions ? 8 : 7)}
+                  className="px-3 py-6 text-sm text-ink2"
+                >
+                  Loading lab bills…
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={(selectable ? 1 : 0) + (actions ? 8 : 7)}
+                  className="px-3 py-6 text-sm text-ink2"
+                >
+                  No lab bills in this view.
+                </td>
+              </tr>
+            ) : (
+              groupBillsByDay(visible ?? []).map((group, groupIndex) => {
+                const span = (selectable ? 1 : 0) + (actions ? 8 : 7);
+                return (
+                  <Fragment key={group.day}>
+                    {groupIndex > 0 ? (
+                      <tr aria-hidden="true">
+                        <td colSpan={span} className="h-2 border-0 bg-white p-0" />
                       </tr>
-                    );
-                  })}
-                </Fragment>
-              );
-            })
-          )}
-        </tbody>
-      </table>
+                    ) : null}
+                    <tr>
+                      <td
+                        colSpan={span}
+                        className={`border-x-2 border-t-2 border-b-2 px-3 py-2 text-sm font-semibold text-ink ${group.edge} ${group.fill}`}
+                      >
+                        {group.label}
+                        <span className="ml-2 text-xs font-medium text-ink2">
+                          {group.rows.length} {group.rows.length === 1 ? 'bill' : 'bills'}
+                        </span>
+                      </td>
+                    </tr>
+                    {group.rows.map((bill) => {
+                      const box = `${group.fill} border-b-2 ${group.edge}`;
+                      return (
+                        <tr key={bill.id} className="hover:bg-white">
+                          {selectable ? (
+                            <td className={`border-l-2 px-2 py-2 ${group.edge} ${box}`}>
+                              {canPick?.(bill) ? (
+                                <label className="inline-flex min-h-11 min-w-11 items-center justify-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={pickedIds?.has(bill.id) === true}
+                                    aria-label={`Select ${bill.referenceNumber}`}
+                                    onChange={() => onPick?.(bill)}
+                                    className="h-4 w-4 accent-navy"
+                                  />
+                                </label>
+                              ) : null}
+                            </td>
+                          ) : null}
+                          <td
+                            className={`${selectable ? '' : 'border-l-2'} px-3 py-2 text-sm font-medium text-ink ${group.edge} ${box}`}
+                          >
+                            <button
+                              type="button"
+                              className="text-left font-medium text-action underline-offset-2 hover:underline"
+                              onClick={() => setSelected(bill)}
+                            >
+                              {bill.referenceNumber}
+                            </button>
+                          </td>
+                          <td className={`px-3 py-2 text-sm text-ink ${box}`}>
+                            {bill.patientName}
+                          </td>
+                          <td className={`px-3 py-2 text-sm text-ink ${box}`}>
+                            {party === 'lab'
+                              ? bill.labName
+                              : (bill.retailerName ?? bill.clientName ?? 'Walk-in')}
+                          </td>
+                          <td className={`px-3 py-2 text-sm text-ink2 ${box}`}>
+                            <button
+                              type="button"
+                              className="text-left text-ink2 underline-offset-2 hover:text-action hover:underline"
+                              onClick={() => setSelected(bill)}
+                            >
+                              {bill.lines
+                                .map((line) => `${line.serviceName} × ${line.quantity}`)
+                                .join(', ') || '—'}
+                            </button>
+                          </td>
+                          <td className={`px-3 py-2 ${box}`}>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[bill.status]} ${bill.status === 'CLEARED' ? 'border-[#16A34A]' : 'border-current'}`}
+                            >
+                              {bill.status === 'CLEARED' ? (
+                                <Check size={12} className="text-[#16A34A]" aria-hidden="true" />
+                              ) : null}
+                              {STATUS_LABEL[bill.status]}
+                            </span>
+                          </td>
+                          <td className={`px-3 py-2 text-sm font-semibold text-ink ${box}`}>
+                            <button
+                              type="button"
+                              className="text-left font-semibold text-ink underline-offset-2 hover:text-action hover:underline"
+                              onClick={() => setSelected(bill)}
+                            >
+                              {formatRupee(bill.total)}
+                            </button>
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-sm text-ink2 ${actions ? '' : `border-r-2 ${group.edge}`} ${box}`}
+                          >
+                            {formatShortDate(bill.createdAt)}
+                          </td>
+                          {actions ? (
+                            <td className={`border-r-2 px-3 py-2 ${group.edge} ${box}`}>
+                              {actions(bill)}
+                            </td>
+                          ) : null}
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+      {rows !== null ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm text-ink2">
+          <p>
+            {listed.length === 0 ? '0' : start + 1}–{start + (visible?.length ?? 0)} of{' '}
+            {listed.length}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {PAGE_CHOICES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                aria-pressed={pageSize === size}
+                onClick={() => {
+                  setPageSize(size);
+                  setDraft(String(size));
+                }}
+                className={`h-9 min-w-9 rounded-lg border px-2 text-sm ${
+                  pageSize === size
+                    ? 'border-navy bg-navy text-white'
+                    : 'border-line bg-white text-ink'
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyDraft(draft);
+              }}
+            >
+              <label className="flex items-center gap-2">
+                Rows
+                <input
+                  type="number"
+                  min={1}
+                  max={MAX_ROWS}
+                  inputMode="numeric"
+                  value={draft}
+                  aria-label="Rows to show"
+                  onChange={(event) => setDraft(event.target.value)}
+                  onBlur={() => applyDraft(draft)}
+                  className="h-9 w-16 rounded-lg border border-line bg-white px-2 text-sm text-ink outline-none focus:border-action"
+                />
+              </label>
+            </form>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={current <= 1}
+              onClick={() => setPage(current - 1)}
+              className="h-9 rounded-lg border border-line bg-white px-3 text-sm text-ink disabled:text-ink3"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={current >= pageCount}
+              onClick={() => setPage(current + 1)}
+              className="h-9 rounded-lg border border-line bg-white px-3 text-sm text-ink disabled:text-ink3"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
       {selected ? (
         <BillDetail bill={selected} party={party} onClose={() => setSelected(null)} />
       ) : null}

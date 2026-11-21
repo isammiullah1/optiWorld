@@ -107,6 +107,8 @@ export function createLabRouter(): Router {
     ops.cancelConnection,
   );
   router.get('/clients', ...laboratory, requireLabFeature('clients'), ops.clients);
+  router.post('/clients', ...laboratory, requireLabFeature('clients'), ops.createClient);
+  router.patch('/clients/:id', ...laboratory, requireLabFeature('clients'), ops.updateClient);
   router.get('/clients/:id/jobs', ...laboratory, requireLabFeature('clients'), ops.clientJobs);
   router.get('/income/export', ...labAdmin, requireLabFeature('reports'), ops.exportIncome);
   router.get('/income', ...labAdmin, requireLabFeature('reports'), ops.income);
@@ -124,6 +126,9 @@ export function createLabRouter(): Router {
   router.patch('/services/:id', ...labAdmin, bills.updateService);
   router.get('/bills/export', ...labAdmin, bills.labExport);
   router.get('/bills', ...laboratory, requireLabFeature('jobs'), bills.labBills);
+  router.post('/bills/clear-many', ...labAdmin, bills.clearMany);
+  router.post('/bills/remind', ...laboratory, requireLabFeature('jobs'), bills.remind);
+  router.post('/bills/whatsapp', ...laboratory, requireLabFeature('jobs'), bills.whatsapp);
   router.patch('/bills/:id', ...labAdmin, bills.updateBill);
   router.post('/bills/:id/lines', ...labAdmin, bills.addLine);
   router.post('/bills/:id/issue', ...labAdmin, bills.issue);

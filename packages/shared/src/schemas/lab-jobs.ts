@@ -203,6 +203,8 @@ export const LabKanbanCardSchema = z.object({
   isUrgent: z.boolean(),
   rxSummary: z.string(),
   services: z.array(z.string()),
+  notes: z.string().nullable(),
+  shipTo: z.string().nullable(),
   stageNote: z.string().nullable(),
   closedByName: z.string().nullable().optional(),
   stageEnteredAt: z.string(),
@@ -219,6 +221,7 @@ export const LabBoardSchema = z.object({
 export const LabBoardJobSchema = LabJobDetailSchema.extend({
   isUrgent: z.boolean(),
   retailerName: z.string().nullable(),
+  shipTo: z.string().nullable(),
 });
 
 export const UpdateLabJobStatusSchema = z.object({
@@ -300,6 +303,13 @@ export const CreateLabBoardJobSchema = z
       .string()
       .trim()
       .regex(/^\d{1,10}(\.\d{1,2})?$/, 'Enter the amount received.')
+      .optional()
+      .or(z.literal('')),
+    deliveryAddress: z.string().trim().max(300).optional().or(z.literal('')),
+    deliveryCharge: z
+      .string()
+      .trim()
+      .regex(/^\d{1,10}(\.\d{1,2})?$/, 'Enter the delivery charges.')
       .optional()
       .or(z.literal('')),
   })

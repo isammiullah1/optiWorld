@@ -62,6 +62,11 @@ export function JobDetailPanel({
   const [editingRx, setEditingRx] = useState(false);
   const [rxDraft, setRxDraft] = useState<PrescriptionReading>(() => readingFrom(job));
   const [rxIssues, setRxIssues] = useState<Partial<Record<PrescriptionIssueKey, string>>>({});
+  const noteLocked =
+    job.status === 'DISPATCHED' ||
+    job.status === 'CANCELLED' ||
+    job.status === 'REJECTED' ||
+    job.status === 'OUTSOURCED';
   const canEditRx =
     job.status === 'SUBMITTED' ||
     job.status === 'CONFIRMED' ||
@@ -77,7 +82,7 @@ export function JobDetailPanel({
 
   return (
     <aside
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[360px] flex-col border-l border-line bg-white"
+      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[360px] flex-col border-l-4 border-navy bg-white"
       aria-label="Job detail"
     >
       <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
@@ -97,7 +102,7 @@ export function JobDetailPanel({
         </div>
         <button
           type="button"
-          className="min-h-11 rounded-lg px-3 text-sm text-ink2"
+          className="min-h-11 rounded-lg border-2 border-navy px-3 text-sm font-semibold text-navy"
           onClick={onClose}
         >
           Close
@@ -116,6 +121,12 @@ export function JobDetailPanel({
           <div>
             <dt className="text-sm uppercase text-ink3">Submitted by</dt>
             <dd>{job.retailerName ?? 'Walk-in'}</dd>
+          </div>
+          <div>
+            <dt className="text-sm uppercase text-ink3">Send to</dt>
+            <dd className="text-ink">
+              {job.shipTo ?? (job.retailerName ? 'No address on file' : 'Collect at the lab')}
+            </dd>
           </div>
           <div>
             <dt className="text-sm uppercase text-ink3">Date received</dt>
@@ -245,18 +256,21 @@ export function JobDetailPanel({
           <textarea
             id="lab-notes"
             value={notes}
+            readOnly={noteLocked}
             onChange={(event) => setNotes(event.target.value)}
             rows={3}
             maxLength={2000}
-            className="rounded-lg border border-line px-3 py-2 text-sm focus:border-action focus:outline-none"
+            className="rounded-lg border border-line px-3 py-2 text-sm focus:border-action focus:outline-none read-only:bg-canvas"
           />
-          <button
-            type="submit"
-            disabled={busy}
-            className="min-h-11 justify-self-start rounded-lg border border-line px-3 text-sm text-ink2"
-          >
-            Save notes
-          </button>
+          {noteLocked ? null : (
+            <button
+              type="submit"
+              disabled={busy}
+              className="min-h-11 justify-self-start rounded-lg border border-line px-3 text-sm text-ink2"
+            >
+              Save notes
+            </button>
+          )}
         </form>
         <div>
           <h2 className="text-sm font-medium uppercase text-ink3">Status history</h2>

@@ -82,6 +82,9 @@ export function AddLabJobDialog({
   const [serviceIds, setServiceIds] = useState<string[]>([]);
   const [servicePrices, setServicePrices] = useState<Record<string, string>>({});
   const [paymentTaken, setPaymentTaken] = useState(false);
+  const [deliver, setDeliver] = useState(false);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryCharge, setDeliveryCharge] = useState('');
   const [inventory, setInventory] = useState<LabInventoryItem[]>([]);
   const nameRef = useRef<HTMLInputElement | null>(null);
   const lensItems = inventory.filter((item) => isLensCategory(item.category));
@@ -188,11 +191,20 @@ export function AddLabJobDialog({
             nameRef.current?.scrollIntoView({ block: 'center' });
           }
           const walkIn = clientId.length === 0;
-          const due = labServiceChargeCents(
-            services,
-            serviceIds,
-            walkIn ? servicePrices : undefined,
-          );
+          const chargeOk = /^\d{1,10}(\.\d{1,2})?$/.test(deliveryCharge.trim());
+          const deliveryCents =
+            walkIn && deliver && chargeOk ? moneyToCents(deliveryCharge.trim()) : 0;
+          const due =
+            labServiceChargeCents(services, serviceIds, walkIn ? servicePrices : undefined) +
+            deliveryCents;
+          if (walkIn && deliver && deliveryAddress.trim().length === 0) {
+            setFormError('Enter the delivery address.');
+            return;
+          }
+          if (walkIn && deliver && (!chargeOk || deliveryCents <= 0)) {
+            setFormError('Enter the delivery charges.');
+            return;
+          }
           if (serviceIds.length === 0) {
             setFormError('Choose at least one lab service.');
             return;
@@ -250,6 +262,8 @@ export function AddLabJobDialog({
                 })
               : undefined,
             amountReceived: walkIn ? centsToMoney(due) : '',
+            deliveryAddress: walkIn && deliver ? deliveryAddress.trim() : '',
+            deliveryCharge: walkIn && deliver ? deliveryCharge.trim() : '',
           });
           if (!parsed.success) {
             setFormError(parsed.error.issues[0]?.message ?? 'Check the job details.');
@@ -381,10 +395,52 @@ export function AddLabJobDialog({
                 Amount due{' '}
                 <span className="font-semibold">
                   {formatRupee(
-                    centsToMoney(labServiceChargeCents(services, serviceIds, servicePrices)),
+                    centsToMoney(
+                      labServiceChargeCents(services, serviceIds, servicePrices) +
+                        (deliver && /^\d{1,10}(\.\d{1,2})?$/.test(deliveryCharge.trim())
+                          ? moneyToCents(deliveryCharge.trim())
+                          : 0),
+                    ),
                   )}
                 </span>
               </p>
+              <label className="flex min-h-11 items-center gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={deliver}
+                  onChange={(event) => {
+                    setDeliver(event.target.checked);
+                    setPaymentTaken(false);
+                  }}
+                />
+                Deliver this order
+              </label>
+              {deliver ? (
+                <>
+                  <label className="grid gap-1 text-xs text-ink2">
+                    Delivery address
+                    <textarea
+                      value={deliveryAddress}
+                      onChange={(event) => setDeliveryAddress(event.target.value)}
+                      rows={2}
+                      maxLength={300}
+                      className="box-border min-h-20 w-full resize-y rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-action"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs text-ink2">
+                    Delivery charges
+                    <input
+                      inputMode="decimal"
+                      value={deliveryCharge}
+                      onChange={(event) => {
+                        setDeliveryCharge(event.target.value);
+                        setPaymentTaken(false);
+                      }}
+                      className="min-h-11 rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none focus:border-action"
+                    />
+                  </label>
+                </>
+              ) : null}
               <label className="flex min-h-11 items-center gap-2 text-sm text-ink">
                 <input
                   type="checkbox"

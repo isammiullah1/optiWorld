@@ -11,14 +11,16 @@ import {
   type LabClientRow,
   type LabKanbanCard,
 } from '@optiworld/shared';
-import { ArrowRight, Check, Plus, X } from 'lucide-react';
+import { ArrowRight, Check, Plus, Printer, PrinterX, X } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { resolveBillLogoUrl, ShopMark } from '@/components/retailer/ShopMark';
 
 import { JOB_STAGE_LOOK } from './job-stage-look';
+import { useCloseOnEscape } from './use-close-on-escape';
 import { labServiceLook } from './service-look';
+import { ProcessingSlip, type ProcessingSlipData } from './ProcessingSlip';
 import { WalkInInvoice } from './WalkInInvoice';
 import { AddLabJobDialog } from './AddLabJobDialog';
 import { JobDetailPanel, REJECT_JOB_MESSAGES } from './JobDetailPanel';
@@ -115,6 +117,7 @@ export function JobKanban({
   const [showAllRejected, setShowAllRejected] = useState(false);
   const [showAllCancelled, setShowAllCancelled] = useState(false);
   const [invoice, setInvoice] = useState<LabBill | null>(null);
+  const [slip, setSlip] = useState<ProcessingSlipData | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!token) {
@@ -151,7 +154,7 @@ export function JobKanban({
     void loadLabClients(token)
       .then(setClients)
       .catch(() => undefined);
-  }, [token]);
+  }, [token, adding]);
 
   useEffect(() => {
     if (!token || !selectedId) {
@@ -197,6 +200,16 @@ export function JobKanban({
         setDetail(updated);
       }
       setError(null);
+      if (job.status === 'RECEIVED' && next === 'CUTTING') {
+        const card = (board?.jobs ?? []).find((row) => row.id === job.id);
+        setSlip({
+          referenceNumber: updated.referenceNumber,
+          patientName: updated.patientName,
+          services: card?.services ?? [],
+          prescription: updated.prescription,
+          notes: updated.notes,
+        });
+      }
       await refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The stage could not be updated');
@@ -385,7 +398,7 @@ export function JobKanban({
             jobId: job.id,
             reference: productTagLabel(job.referenceNumber),
             from: job.status,
-            note: job.stageNote ?? '',
+            note: job.notes ?? '',
           })
         }
         onCancel={() => askCancel(job)}
@@ -541,6 +554,7 @@ export function JobKanban({
                     <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-ink">
                       {jobs.length}
                     </span>
+                    {column.id === 'RECEIVED' ? <PrinterLink /> : null}
                   </header>
                   <div className="grid min-h-24 gap-2 bg-white/70 p-2">
                     {jobs.length === 0 ? (
@@ -692,6 +706,7 @@ export function JobKanban({
               .then(async () => {
                 setDetail(await loadLabBoardJob(token, detail.id));
                 setNotice('Notes saved.');
+                await refresh();
               })
               .catch((caught: unknown) =>
                 setError(caught instanceof Error ? caught.message : 'Notes could not be saved'),
@@ -851,6 +866,7 @@ export function JobKanban({
       {invoice && token ? (
         <WalkInInvoice token={token} bill={invoice} onClose={() => setInvoice(null)} />
       ) : null}
+      {slip ? <ProcessingSlip slip={slip} onClose={() => setSlip(null)} /> : null}
       {adding && token ? (
         <AddLabJobDialog
           token={token}
@@ -984,6 +1000,9 @@ function JobCard({
                 {productTagLabel(job.referenceNumber)}
               </span>
               <span className="block truncate text-sm text-ink">{job.patientName}</span>
+              {job.notes ? (
+                <span className="block truncate text-xs text-ink2">Note: {job.notes}</span>
+              ) : null}
               {job.services.length > 0 ? (
                 <span className="mt-1 flex flex-wrap gap-1">
                   {job.services.map((service, index) => (
@@ -1009,6 +1028,10 @@ function JobCard({
         <div className="grid gap-2 border-t border-line bg-white/70 px-3 py-3 text-left">
           {job.patientPhone ? <p className="text-xs text-ink2">{job.patientPhone}</p> : null}
           <p className="text-xs text-ink3">via {shopName}</p>
+          <div className="rounded-lg border border-navy bg-[var(--ow-navy-soft)] px-2 py-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-navy">Send to</p>
+            <p className="text-sm text-ink">{job.shipTo ?? sendFallback(shopName)}</p>
+          </div>
           <div className="grid gap-1">
             <p className="text-xs font-medium uppercase tracking-wide text-ink3">Services</p>
             {job.services.length === 0 ? (
@@ -1035,7 +1058,15 @@ function JobCard({
             </p>
           ) : null}
           <p className="truncate text-xs text-ink2">{job.rxSummary}</p>
-          {job.stageNote ? <p className="text-xs text-ink2">{job.stageNote}</p> : null}
+          {job.notes ? (
+            <div className="rounded-lg border-2 border-amber bg-amber-soft px-2 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-amber">Note</p>
+              <p className="whitespace-pre-wrap text-sm text-ink">{job.notes}</p>
+            </div>
+          ) : null}
+          {closed && job.stageNote && job.stageNote !== job.notes ? (
+            <p className="text-xs text-ink2">{job.stageNote}</p>
+          ) : null}
           {job.status === 'CANCELLED' ? (
             <p className="text-sm text-ink3">
               {job.trail.map((status) => stageLabel(status)).join(' → ')}
@@ -1054,13 +1085,15 @@ function JobCard({
               <p className="text-sm text-ink2">This job is closed and cannot be reopened.</p>
             ) : (
               <>
-                <button
-                  type="button"
-                  className="inline-flex min-h-11 items-center rounded-lg border border-line bg-white px-3 text-xs font-semibold text-ink2"
-                  onClick={onNote}
-                >
-                  Add note
-                </button>
+                {job.status !== 'DISPATCHED' ? (
+                  <button
+                    type="button"
+                    className="inline-flex min-h-11 items-center rounded-lg border border-line bg-white px-3 text-xs font-semibold text-ink2"
+                    onClick={onNote}
+                  >
+                    {job.notes ? 'Edit note' : 'Add note'}
+                  </button>
+                ) : null}
                 {job.status === 'SUBMITTED' ? (
                   <>
                     <button
@@ -1280,6 +1313,7 @@ function RejectDialog({
   onConfirm: () => void;
 }): React.ReactElement {
   const missing = prompt.reason.trim().length === 0;
+  useCloseOnEscape(onClose, !busy);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 px-4 py-6 sm:items-center"
@@ -1371,6 +1405,7 @@ function ReopenDialog({
   onConfirm: () => void;
 }): React.ReactElement {
   const missing = prompt.reason.trim().length === 0;
+  useCloseOnEscape(onClose, !busy);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 px-4 py-6 sm:items-center"
@@ -1386,51 +1421,51 @@ function ReopenDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="reopen-job-title"
-        className="relative grid w-full max-w-md gap-3 rounded-xl border border-line bg-white p-4"
+        className="relative grid w-full max-w-md gap-3 overflow-hidden rounded-xl border-2 border-navy bg-white"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
           onConfirm();
         }}
       >
-        <div>
-          <h2 id="reopen-job-title" className="text-lg font-semibold text-ink">
+        <div className="bg-navy px-4 py-3 text-white">
+          <h2 id="reopen-job-title" className="text-lg font-semibold">
             Reopen {prompt.reference}
           </h2>
-          <p className="mt-1 text-sm text-ink2">
-            Write why this dispatched job is coming back. The note stays on the job history.
+          <p className="mt-1 text-sm text-white/80">
+            This note stays on the job and moves with it through the later stages.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 px-4">
           {REOPEN_JOB_REASONS.map((reason) => (
             <button
               key={reason}
               type="button"
               aria-pressed={prompt.reason === reason}
-              className={`min-h-11 rounded-full border px-3 text-xs ${prompt.reason === reason ? 'border-action bg-action-soft text-action' : 'border-line text-ink2'}`}
+              className={`min-h-11 rounded-full border-2 px-3 text-xs font-medium ${prompt.reason === reason ? 'border-navy bg-[var(--ow-navy-soft)] text-navy' : 'border-line bg-white text-ink2'}`}
               onClick={() => onChange(reason)}
             >
               {reason}
             </button>
           ))}
         </div>
-        <label className="grid gap-1 text-xs text-ink2">
-          Reason
+        <label className="grid gap-1 px-4 text-xs font-medium uppercase tracking-wide text-navy">
+          Note
           <textarea
             value={prompt.reason}
-            placeholder="Write why this job is being reopened"
+            placeholder="Write why this job is coming back"
             onChange={(event) => onChange(event.target.value)}
             rows={3}
             maxLength={500}
             required
             aria-invalid={missing}
-            className="rounded-lg border border-line px-3 py-2 text-sm text-ink focus:border-action focus:outline-none"
+            className="rounded-lg border-2 border-navy bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink focus:border-action focus:outline-none"
           />
         </label>
-        <div className="flex justify-end gap-2">
+        <div className="grid gap-2 px-4 pb-4 sm:grid-cols-2">
           <button
             type="button"
-            className="min-h-11 rounded-lg border border-line px-4 text-sm text-ink2"
+            className="min-h-12 rounded-xl border-2 border-navy bg-white px-4 text-sm font-semibold text-navy"
             onClick={onClose}
           >
             Keep dispatched
@@ -1438,7 +1473,7 @@ function ReopenDialog({
           <button
             type="submit"
             disabled={busy || missing}
-            className="min-h-11 rounded-lg bg-action px-4 text-sm font-medium text-white disabled:opacity-50"
+            className="min-h-12 rounded-xl border-2 border-navy bg-navy px-4 text-sm font-semibold text-white disabled:opacity-50"
           >
             Reopen job
           </button>
@@ -1462,6 +1497,7 @@ function CancelDialog({
   onConfirm: () => void;
 }): React.ReactElement {
   const missing = prompt.reason.trim().length === 0;
+  useCloseOnEscape(onClose, !busy);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 px-4 py-6 sm:items-center"
@@ -1552,6 +1588,7 @@ function NoteDialog({
   onClose: () => void;
   onConfirm: () => void;
 }): React.ReactElement {
+  useCloseOnEscape(onClose, !busy);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 px-4 py-6 sm:items-center"
@@ -1567,35 +1604,35 @@ function NoteDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="job-note-title"
-        className="relative grid w-full max-w-md gap-3 rounded-xl border border-line bg-white p-4"
+        className="relative grid w-full max-w-md gap-3 overflow-hidden rounded-xl border-2 border-navy bg-white"
         onSubmit={(event) => {
           event.preventDefault();
           onConfirm();
         }}
       >
-        <div>
-          <h2 id="job-note-title" className="text-lg font-semibold text-ink">
+        <div className="bg-navy px-4 py-3 text-white">
+          <h2 id="job-note-title" className="text-lg font-semibold">
             Stage note
           </h2>
-          <p className="mt-1 text-sm text-ink2">
+          <p className="mt-1 text-sm text-white/80">
             This note stays with {prompt.reference} at {stageLabel(prompt.from)}.
           </p>
         </div>
-        <label className="grid gap-1 text-xs text-ink2">
+        <label className="grid gap-1 px-4 text-xs text-ink2">
           Note for this step
           <textarea
             value={prompt.note}
             onChange={(event) => onChange(event.target.value)}
             rows={3}
             maxLength={500}
-            className="rounded-lg border border-line px-3 py-2 text-sm text-ink outline-none focus:border-action"
+            className="rounded-lg border-2 border-navy bg-white px-3 py-2 text-sm text-ink outline-none focus:border-action"
           />
         </label>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 px-4 pb-4 sm:grid-cols-2">
           <button
             type="button"
             disabled={busy}
-            className="min-h-12 rounded-xl border border-line bg-white px-4 text-sm font-semibold text-ink2"
+            className="min-h-12 rounded-xl border-2 border-navy bg-white px-4 text-sm font-semibold text-navy"
             onClick={onClose}
           >
             Cancel
@@ -1624,6 +1661,7 @@ function CompleteDialog({
   onClose: () => void;
   onConfirm: () => void;
 }): React.ReactElement {
+  useCloseOnEscape(onClose, !busy);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 px-4 py-6 sm:items-center"
@@ -1639,7 +1677,7 @@ function CompleteDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="job-complete-title"
-        className="relative grid w-full max-w-md gap-3 rounded-xl border border-line bg-white p-4"
+        className="relative grid w-full max-w-md gap-3 rounded-xl border-2 border-action bg-action-soft p-4"
         onSubmit={(event) => {
           event.preventDefault();
           onConfirm();
@@ -1657,7 +1695,7 @@ function CompleteDialog({
           <button
             type="button"
             disabled={busy}
-            className="min-h-12 rounded-xl border border-line bg-white px-4 text-sm font-semibold text-ink2"
+            className="min-h-12 rounded-xl border-2 border-action bg-white px-4 text-sm font-semibold text-ink"
             onClick={onClose}
           >
             Cancel
@@ -1665,13 +1703,88 @@ function CompleteDialog({
           <button
             type="submit"
             disabled={busy}
-            className="min-h-12 rounded-xl bg-action px-4 text-sm font-semibold text-white disabled:opacity-60"
+            className="min-h-12 rounded-xl border-2 border-action bg-action px-4 text-sm font-semibold text-white disabled:opacity-60"
           >
             {busy ? 'Saving…' : 'Mark completed'}
           </button>
         </div>
       </form>
     </div>
+  );
+}
+
+function sendFallback(shopName: string): string {
+  return shopName === 'Walk-in' ? 'Collect at the lab' : 'No address on file';
+}
+
+type UsbPrinterDevice = {
+  deviceClass: number;
+  configuration: {
+    interfaces: ReadonlyArray<{ alternate: { interfaceClass: number } }>;
+  } | null;
+};
+
+function deviceIsPrinter(device: UsbPrinterDevice): boolean {
+  if (device.deviceClass === 7) {
+    return true;
+  }
+  return (
+    device.configuration?.interfaces.some((item) => item.alternate.interfaceClass === 7) === true
+  );
+}
+
+function PrinterLink(): React.ReactElement {
+  const [linked, setLinked] = useState(false);
+
+  useEffect(() => {
+    const usb = (
+      navigator as Navigator & {
+        usb?: {
+          getDevices: () => Promise<UsbPrinterDevice[]>;
+          addEventListener: (type: string, listener: () => void) => void;
+          removeEventListener: (type: string, listener: () => void) => void;
+        };
+      }
+    ).usb;
+    if (!usb) {
+      return;
+    }
+    let active = true;
+    const refresh = (): void => {
+      void usb
+        .getDevices()
+        .then((devices) => {
+          if (active) {
+            setLinked(devices.some(deviceIsPrinter));
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setLinked(false);
+          }
+        });
+    };
+    refresh();
+    usb.addEventListener('connect', refresh);
+    usb.addEventListener('disconnect', refresh);
+    return () => {
+      active = false;
+      usb.removeEventListener('connect', refresh);
+      usb.removeEventListener('disconnect', refresh);
+    };
+  }, []);
+
+  const Icon = linked ? Printer : PrinterX;
+  return (
+    <span
+      className={`ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full border-2 bg-white ${
+        linked ? 'border-teal text-teal' : 'border-danger text-danger'
+      }`}
+      title={linked ? 'Printer linked' : 'Printer not linked'}
+    >
+      <Icon size={14} aria-hidden="true" />
+      <span className="sr-only">{linked ? 'Printer linked' : 'Printer not linked'}</span>
+    </span>
   );
 }
 

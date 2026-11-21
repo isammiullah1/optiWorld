@@ -698,6 +698,8 @@ model LabJob {
   isUrgent            Boolean   @default(false) @map("is_urgent")
   notifyWhatsapp      Boolean   @default(true) @map("notify_whatsapp")
   notes               String?   @db.Text
+  deliveryAddress     String?   @map("delivery_address") @db.Text
+  deliveryCharge      Decimal   @default(0) @map("delivery_charge") @db.Decimal(12, 2)
   completedAt         DateTime? @map("completed_at")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
@@ -788,6 +790,9 @@ model LabClient {
   labOrgId    String           @map("lab_org_id") @db.Uuid
   name        String
   phone       String?
+  city        String?
+  address     String?
+  about       String?
   linkedOrgId      String?          @map("linked_org_id") @db.Uuid
   requestedByOrgId String?          @map("requested_by_org_id") @db.Uuid
   // APPROVED for walk-in clients and accepted shops. A retailer request starts PENDING.

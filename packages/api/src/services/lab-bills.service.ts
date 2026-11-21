@@ -157,6 +157,7 @@ export async function openLabBill(
     retailerInvoiceId: string | null;
     serviceIds?: readonly string[];
     servicePrices?: readonly { serviceId: string; price: string }[];
+    deliveryCharge?: string;
   },
 ): Promise<void> {
   const existing = await tx.labBill.findUnique({
@@ -200,7 +201,13 @@ export async function openLabBill(
           select: { id: true },
         })
       : null;
-  const lines = services.map((service) => {
+  const lines: Array<{
+    labServiceId: string | null;
+    serviceName: string;
+    listPrice: string;
+    unitPrice: string;
+    quantity: number;
+  }> = services.map((service) => {
     const listPrice = money(service.price);
     const unitPrice = quoted.get(service.id) ?? listPrice;
     if (moneyToCents(unitPrice) <= 0) {
@@ -214,6 +221,17 @@ export async function openLabBill(
       quantity: 1,
     };
   });
+  const delivery = (input.deliveryCharge ?? '').trim();
+  if (walkInQuote && delivery.length > 0 && moneyToCents(delivery) > 0) {
+    const charge = centsToMoney(moneyToCents(delivery));
+    lines.push({
+      labServiceId: null,
+      serviceName: 'Delivery',
+      listPrice: charge,
+      unitPrice: charge,
+      quantity: 1,
+    });
+  }
   const total = centsToMoney(linesTotal(lines, 0, []));
   await tx.labBill.create({
     data: {
@@ -542,6 +560,146 @@ export async function clearLabBill(auth: AuthSessionUser, billId: string): Promi
   return readBill(bill.id);
 }
 
+export async function clearLabBills(auth: AuthSessionUser, billIds: string[]): Promise<LabBill[]> {
+  const labOrgId = requireLabAdmin(auth);
+  const bills = await loadPartyBills(labOrgId, billIds);
+  if (bills.some((bill) => bill.status !== 'ISSUED')) {
+    throw new AppError(
+      422,
+      'VALIDATION_ERROR',
+      'Issue every selected bill before marking them paid.',
+    );
+  }
+  const now = new Date();
+  const retailerOrgId = bills[0]?.retailerOrgId ?? null;
+  await prisma.$transaction(async (tx) => {
+    for (const bill of bills) {
+      await tx.labBill.update({
+        where: { id: bill.id },
+        data: {
+          status: 'CLEARED',
+          amountPaid: money(bill.total),
+          clearedAt: now,
+          clearedByUserId: auth.userId,
+          issuedAt: bill.issuedAt ?? now,
+        },
+      });
+    }
+    if (retailerOrgId) {
+      await tx.alert.create({
+        data: {
+          orgId: retailerOrgId,
+          type: 'LAB_JOB_STATUS',
+          title: 'Lab bills paid',
+          body: paidNotice(bills),
+          relatedEntityId: bills[0]?.labJobId ?? null,
+          relatedEntityType: 'LabJob',
+        },
+      });
+    }
+  });
+  return Promise.all(bills.map((bill) => readBill(bill.id)));
+}
+
+export async function remindLabBills(
+  auth: AuthSessionUser,
+  billIds: string[],
+): Promise<{ notified: boolean }> {
+  const labOrgId = requireLab(auth);
+  const bills = await loadPartyBills(labOrgId, billIds);
+  if (bills.some((bill) => bill.status !== 'OPEN' && bill.status !== 'ISSUED')) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'A paid or rejected bill cannot go on a reminder.');
+  }
+  const retailerOrgId = bills[0]?.retailerOrgId ?? null;
+  if (!retailerOrgId) {
+    return { notified: false };
+  }
+  await prisma.alert.create({
+    data: {
+      orgId: retailerOrgId,
+      type: 'LAB_JOB_STATUS',
+      title: 'Lab bill reminder',
+      body: pendingNotice(bills),
+      relatedEntityId: bills[0]?.labJobId ?? null,
+      relatedEntityType: 'LabJob',
+    },
+  });
+  return { notified: true };
+}
+
+export async function whatsappLabBillStatement(
+  auth: AuthSessionUser,
+  billIds: string[],
+): Promise<{ sent: boolean; message: string }> {
+  const labOrgId = requireLab(auth);
+  const bills = await loadPartyBills(labOrgId, billIds);
+  if (bills.some((bill) => bill.status !== 'OPEN' && bill.status !== 'ISSUED')) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'A paid or rejected bill cannot go on a reminder.');
+  }
+  const first = bills[0];
+  if (!first) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Select at least one bill.');
+  }
+  const retailer = first.retailerOrgId
+    ? await prisma.organisation.findFirst({
+        where: { id: first.retailerOrgId },
+        select: { whatsappNumber: true, phone: true },
+      })
+    : null;
+  const client = first.labClientId
+    ? await prisma.labClient.findFirst({
+        where: { id: first.labClientId, labOrgId },
+        select: { phone: true },
+      })
+    : null;
+  const phone = digitsOnly(retailer?.whatsappNumber ?? retailer?.phone ?? client?.phone ?? '');
+  const summary = statementSummary(bills);
+  if (!phone) {
+    await logBillWhatsapp(auth, first.labJobId, false, 'No phone number for this retailer');
+    return { sent: false, message: 'This retailer has no phone number for WhatsApp.' };
+  }
+  const token = process.env.WHATSAPP_API_TOKEN ?? '';
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
+  if (!token || !phoneNumberId) {
+    await logBillWhatsapp(auth, first.labJobId, false, 'WhatsApp is not configured');
+    return { sent: false, message: 'WhatsApp is not configured yet.' };
+  }
+  try {
+    const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: phone,
+        type: 'template',
+        template: {
+          name: 'optiworld_job_status',
+          language: { code: 'en' },
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: first.lab.name },
+                { type: 'text', text: 'Pending bills' },
+                { type: 'text', text: summary },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+    if (!response.ok) {
+      await logBillWhatsapp(auth, first.labJobId, false, `WhatsApp returned ${response.status}`);
+      return { sent: false, message: 'WhatsApp could not send the statement.' };
+    }
+    await logBillWhatsapp(auth, first.labJobId, true, summary);
+    return { sent: true, message: 'The statement was sent on WhatsApp.' };
+  } catch {
+    await logBillWhatsapp(auth, first.labJobId, false, 'WhatsApp request failed');
+    return { sent: false, message: 'WhatsApp could not send the statement.' };
+  }
+}
+
 export async function adjustIssuedLabBill(
   auth: AuthSessionUser,
   billId: string,
@@ -783,6 +941,98 @@ function recordedPayment(
 
 function isWalkInBill(bill: { retailerOrgId: string | null; labClientId: string | null }): boolean {
   return bill.retailerOrgId === null && bill.labClientId === null;
+}
+
+function partyKey(bill: { retailerOrgId: string | null; labClientId: string | null }): string {
+  if (bill.retailerOrgId) {
+    return `org:${bill.retailerOrgId}`;
+  }
+  if (bill.labClientId) {
+    return `client:${bill.labClientId}`;
+  }
+  return 'walk-in';
+}
+
+async function loadPartyBills(labOrgId: string, billIds: readonly string[]) {
+  const unique = [...new Set(billIds)];
+  const bills = await prisma.labBill.findMany({
+    where: { labOrgId, id: { in: unique } },
+    include: billInclude,
+  });
+  if (bills.length !== unique.length) {
+    throw new AppError(404, 'NOT_FOUND', 'One of those bills is not on this laboratory.');
+  }
+  if (bills.some((bill) => isWalkInBill(bill))) {
+    throw new AppError(
+      422,
+      'VALIDATION_ERROR',
+      'A walk-in bill is settled when the job is created.',
+    );
+  }
+  const keys = new Set(bills.map((bill) => partyKey(bill)));
+  if (keys.size !== 1) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Select bills for one retailer.');
+  }
+  return bills;
+}
+
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+function statementSummary(
+  bills: readonly { total: MoneyValue; labJob: { referenceNumber: string } }[],
+): string {
+  const due = centsToMoney(bills.reduce((sum, bill) => sum + moneyToCents(money(bill.total)), 0));
+  const lines = bills
+    .slice(0, 8)
+    .map((bill) => `${bill.labJob.referenceNumber} ${money(bill.total)}`)
+    .join(', ');
+  return `Pending bills ${bills.length}. Pending charges Rs ${due}. ${lines}`
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
+async function logBillWhatsapp(
+  auth: AuthSessionUser,
+  jobId: string,
+  sent: boolean,
+  detail: string,
+): Promise<void> {
+  if (!auth.orgId) {
+    return;
+  }
+  await prisma.auditLog.create({
+    data: {
+      orgId: auth.orgId,
+      userId: auth.userId,
+      action: sent ? 'WHATSAPP_JOB_STATUS_SENT' : 'WHATSAPP_JOB_STATUS_FAILED',
+      entityType: 'LabJob',
+      entityId: jobId,
+      metadata: { detail: detail.slice(0, 500) },
+    },
+  });
+}
+
+function pendingNotice(
+  bills: readonly { total: MoneyValue; labJob: { referenceNumber: string } }[],
+): string {
+  const due = centsToMoney(bills.reduce((sum, bill) => sum + moneyToCents(money(bill.total)), 0));
+  return `${bills.length} pending bills, ${due} due. ${billList(bills)}`;
+}
+
+function paidNotice(
+  bills: readonly { total: MoneyValue; labJob: { referenceNumber: string } }[],
+): string {
+  const due = centsToMoney(bills.reduce((sum, bill) => sum + moneyToCents(money(bill.total)), 0));
+  return `${bills.length} bills marked paid, ${due}. ${billList(bills)}`;
+}
+
+function billList(bills: readonly { labJob: { referenceNumber: string } }[]): string {
+  const shown = bills.slice(0, 20).map((bill) => bill.labJob.referenceNumber);
+  const extra = bills.length - shown.length;
+  return extra > 0 ? `${shown.join(', ')}, and ${extra} more.` : `${shown.join(', ')}.`;
 }
 
 function describeJob(job: {

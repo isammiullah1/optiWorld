@@ -36,6 +36,15 @@ export function LabDashboard(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!token || !adding) {
+      return;
+    }
+    void loadLabClients(token)
+      .then(setClients)
+      .catch(() => undefined);
+  }, [adding, token]);
+
+  useEffect(() => {
     if (!token) {
       return;
     }
@@ -73,9 +82,13 @@ export function LabDashboard(): React.ReactElement {
     };
   }, [token, refreshKey]);
 
-  const activeJobs = (jobs ?? [])
-    .filter((job) => job.status !== 'DISPATCHED' && job.status !== 'CANCELLED')
-    .slice(0, 8);
+  const activeJobs = (jobs ?? []).filter(
+    (job) =>
+      job.status !== 'DISPATCHED' &&
+      job.status !== 'CANCELLED' &&
+      job.status !== 'REJECTED' &&
+      job.status !== 'OUTSOURCED',
+  );
   const unread = notices?.filter((notice) => !notice.isRead).length ?? 0;
   const canAdd = Boolean(token) && features?.includes('jobs') === true;
 
@@ -146,38 +159,53 @@ export function LabDashboard(): React.ReactElement {
                   {activeJobs.length === 0 ? (
                     <p className="px-4 py-6 text-sm text-ink2">No jobs are in progress.</p>
                   ) : (
-                    <ul>
-                      {activeJobs.map((job) => (
-                        <li key={job.id} className="border-t border-line first:border-t-0">
-                          <Link
-                            href={`/laboratory/jobs?job=${job.id}`}
-                            className="grid gap-1 px-4 py-3 hover:bg-canvas"
-                          >
-                            <span className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-semibold text-action">
-                                {job.referenceNumber}
-                              </span>
+                    <ul className="grid max-h-[538px] content-start gap-3 overflow-y-auto overscroll-contain bg-action-soft p-3 sm:grid-cols-2">
+                      {activeJobs.map((job) => {
+                        const stage = JOB_STAGE_LOOK.find((item) => item.match(job.status));
+                        const Icon = stage?.icon;
+                        const tone = stage?.tone ?? 'border-line bg-canvas text-ink2';
+                        return (
+                          <li key={job.id}>
+                            <Link
+                              href={`/laboratory/jobs?job=${job.id}`}
+                              className="flex h-full min-h-11 items-start gap-3 rounded-xl border border-line bg-white p-3 hover:border-action"
+                            >
                               <span
-                                className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
-                                  JOB_STAGE_LOOK.find((stage) => stage.match(job.status))?.tone ??
-                                  'border-line bg-canvas text-ink2'
-                                }`}
+                                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${tone}`}
                               >
-                                {JOB_STATUS_LABEL[job.status]}
+                                {Icon ? <Icon className="h-5 w-5" aria-hidden="true" /> : null}
                               </span>
-                              {job.isUrgent ? (
-                                <span className="rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
-                                  Urgent
+                              <span className="grid min-w-0 flex-1 gap-1">
+                                <span className="flex items-start justify-between gap-2">
+                                  <span className="font-mono text-sm font-semibold text-navy">
+                                    {job.referenceNumber}
+                                  </span>
+                                  <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                                    <span
+                                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${tone}`}
+                                    >
+                                      {JOB_STATUS_LABEL[job.status]}
+                                    </span>
+                                    {job.isUrgent ? (
+                                      <span className="rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
+                                        Urgent
+                                      </span>
+                                    ) : null}
+                                  </span>
                                 </span>
-                              ) : null}
-                            </span>
-                            <span className="text-sm text-ink">
-                              {job.patientName}
-                              {job.retailerName ? ` · ${job.retailerName}` : ''}
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
+                                <span className="truncate text-sm font-medium text-ink">
+                                  {job.patientName}
+                                </span>
+                                {job.retailerName ? (
+                                  <span className="truncate text-sm text-ink2">
+                                    {job.retailerName}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </Link>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </article>

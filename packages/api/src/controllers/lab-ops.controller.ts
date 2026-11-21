@@ -7,6 +7,7 @@ import {
   LabJobHistoryQuerySchema,
   ReportRangeQuerySchema,
   RetailerSearchQuerySchema,
+  SaveExternalLabClientSchema,
   SaveLabInventorySchema,
 } from '@optiworld/shared';
 import { z } from 'zod';
@@ -18,9 +19,11 @@ import {
   approveLabRequest,
   cancelLabRequest,
   declineLabRequest,
+  createExternalLabClient,
   listLabClientJobs,
   listLabClients,
   listLabRequests,
+  updateExternalLabClient,
   requestLabRetailer,
   searchLabRetailers,
 } from '../services/lab-clients.service.js';
@@ -65,6 +68,17 @@ export function createLabOpsController() {
     }),
     clients: asyncHandler(async (req: Request, res: Response) => {
       const data = await listLabClients(session(req));
+      res.status(200).json({ success: true, data });
+    }),
+    createClient: asyncHandler(async (req: Request, res: Response) => {
+      const input = SaveExternalLabClientSchema.parse(req.body);
+      const data = await createExternalLabClient(session(req), input);
+      res.status(201).json({ success: true, data });
+    }),
+    updateClient: asyncHandler(async (req: Request, res: Response) => {
+      const params = ItemIdSchema.parse(req.params);
+      const input = SaveExternalLabClientSchema.parse(req.body);
+      const data = await updateExternalLabClient(session(req), params.id, input);
       res.status(200).json({ success: true, data });
     }),
     searchRetailers: asyncHandler(async (req: Request, res: Response) => {

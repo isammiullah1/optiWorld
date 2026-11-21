@@ -2,6 +2,7 @@
 
 import {
   productTagLabel,
+  type JobStatus,
   type LabClientRow,
   type LabRequestLists,
   type LabRetailerRequest,
@@ -26,14 +27,18 @@ import {
 import { DisconnectButton } from '@/components/connections/DisconnectButton';
 import { DisconnectDialog } from '@/components/connections/DisconnectDialog';
 
+import { ExternalClientDialog, TypeBadge } from './ExternalClientDialog';
+import { JOB_STAGE_LOOK } from './job-stage-look';
 import {
   acceptLabRequest,
   cancelLabRequest,
   connectLabRetailer,
+  createExternalLabClient,
   declineLabRequest,
   loadLabClients,
   loadLabRequests,
   searchLabRetailers,
+  updateExternalLabClient,
 } from './lab-api';
 
 export function LabClients(): React.ReactElement {
@@ -45,6 +50,9 @@ export function LabClients(): React.ReactElement {
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const [profileClient, setProfileClient] = useState<LabClientRow | null>(null);
+  const [editor, setEditor] = useState<LabClientRow | null | 'new'>(null);
+  const [editorBusy, setEditorBusy] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   const refresh = useCallback((): void => {
     const token = session?.accessToken;
@@ -71,9 +79,22 @@ export function LabClients(): React.ReactElement {
 
   return (
     <section className="grid gap-3">
-      <p className="text-sm text-ink2">
-        Find a shop by the username they share, or accept a request they send.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink2">
+          Find a shop by the username they share, accept a request they send, or add a retailer that
+          is not on OptiWorld.
+        </p>
+        <button
+          type="button"
+          className="min-h-11 rounded-lg bg-navy px-4 text-sm font-semibold text-white"
+          onClick={() => {
+            setEditorError(null);
+            setEditor('new');
+          }}
+        >
+          Add external retailer
+        </button>
+      </div>
       <RetailerLookup
         onSearch={async (query) => {
           const token = session?.accessToken;
@@ -150,12 +171,19 @@ export function LabClients(): React.ReactElement {
       ) : clients.length === 0 ? (
         <section className="rounded-xl border border-line bg-white p-6 text-center">
           <h2 className="text-md font-semibold text-ink">No clients yet</h2>
-          <p className="text-sm text-ink2">Accepted shops and walk-in clients appear here.</p>
+          <p className="text-sm text-ink2">Connected shops and external retailers appear here.</p>
         </section>
       ) : (
         <ClientList
           clients={clients}
-          onProfile={setProfileClient}
+          onProfile={(client) => {
+            if (client.type === 'EXTERNAL') {
+              setEditorError(null);
+              setEditor(client);
+              return;
+            }
+            setProfileClient(client);
+          }}
           onDisconnect={(client) => {
             setDisconnectError(null);
             setDisconnecting(client);
@@ -178,6 +206,7 @@ export function LabClients(): React.ReactElement {
           error={null}
           onClose={() => setProfileClient(null)}
           onSend={null}
+          badge={<TypeBadge type="OPTIWORLD" />}
           footer={
             <Link
               href={`/laboratory/clients/${profileClient.id}`}
@@ -221,12 +250,61 @@ export function LabClients(): React.ReactElement {
           }}
         />
       ) : null}
+      {editor !== null ? (
+        <ExternalClientDialog
+          client={editor === 'new' ? null : editor}
+          busy={editorBusy}
+          error={editorError}
+          onClose={() => {
+            if (!editorBusy) {
+              setEditor(null);
+            }
+          }}
+          onSave={async (input) => {
+            const token = session?.accessToken;
+            if (!token) {
+              return;
+            }
+            setEditorBusy(true);
+            setEditorError(null);
+            try {
+              if (editor === 'new') {
+                await createExternalLabClient(token, input);
+              } else {
+                await updateExternalLabClient(token, editor.id, input);
+              }
+              setEditor(null);
+              refresh();
+            } catch (caught) {
+              setEditorError(
+                caught instanceof Error ? caught.message : 'The retailer could not be saved',
+              );
+            } finally {
+              setEditorBusy(false);
+            }
+          }}
+        />
+      ) : null}
     </section>
   );
 }
 
 const CLIENT_BOX =
   'rounded-xl border-2 border-teal bg-[color-mix(in_srgb,var(--ow-teal)_26%,white)] p-3';
+
+function LiveStatus({ status }: { status: JobStatus }): React.ReactElement {
+  const stage = JOB_STAGE_LOOK.find((item) => item.match(status));
+  const Icon = stage?.icon;
+  const tone = stage?.tone ?? 'border-line bg-canvas text-ink2';
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full border-2 px-2 py-1 text-xs font-medium ${tone}`}
+    >
+      {Icon ? <Icon size={14} aria-hidden="true" /> : null}
+      {jobStatusLabel(status)}
+    </span>
+  );
+}
 
 function ClientList({
   clients,
@@ -264,7 +342,7 @@ function ClientList({
                     {client.name}
                   </span>
                   <span className="block truncate text-sm text-ink2">
-                    {client.city?.trim() ? client.city : (client.phone ?? 'Walk-in client')}
+                    {client.city?.trim() ? client.city : (client.phone ?? 'No contact on file')}
                   </span>
                 </span>
                 <span className="hidden text-right sm:block">
@@ -322,7 +400,7 @@ function ClientList({
                             <span className="min-w-0 flex-1 truncate text-ink">
                               {job.patientName}
                             </span>
-                            <span className="text-ink2">{jobStatusLabel(job.status)}</span>
+                            <LiveStatus status={job.status} />
                           </Link>
                         </li>
                       ))}
@@ -361,17 +439,6 @@ function ClientList({
         })}
       </ul>
     </section>
-  );
-}
-
-export function TypeBadge({ type }: { type: LabClientRow['type'] }): React.ReactElement {
-  const optiworld = type === 'OPTIWORLD';
-  return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-xs font-medium ${optiworld ? 'bg-action-soft text-action' : 'bg-canvas text-ink3'}`}
-    >
-      {optiworld ? 'OptiWorld' : 'External'}
-    </span>
   );
 }
 

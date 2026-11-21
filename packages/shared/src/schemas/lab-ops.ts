@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { JOB_STATUSES } from '../enums/index.js';
+import { isShopPhone, shopPhoneMessage } from '../phone/shop-phone.js';
 
 const uuid = z.string().uuid();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -50,6 +51,29 @@ export const AdjustLabStockSchema = z.discriminatedUnion('kind', [
     labJobId: uuid.optional().or(z.literal('')),
   }),
 ]);
+
+const optionalDetail = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
+
+export const SaveExternalLabClientSchema = z.object({
+  name: z.string().trim().min(1, 'Enter the retailer name.').max(120),
+  phone: z
+    .string()
+    .trim()
+    .max(30, 'Phone must be 30 characters or fewer.')
+    .optional()
+    .or(z.literal(''))
+    .superRefine((value, ctx) => {
+      const phone = value ?? '';
+      if (phone.length > 0 && !isShopPhone(phone)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: shopPhoneMessage(phone) });
+      }
+    }),
+  city: optionalDetail(80),
+  address: optionalDetail(240),
+  about: optionalDetail(500),
+});
+
+export type SaveExternalLabClientRequest = z.infer<typeof SaveExternalLabClientSchema>;
 
 export const LabClientRowSchema = z.object({
   id: uuid,

@@ -7,6 +7,7 @@ import type {
   LabRequestLists,
   LabRetailerRequest,
   RetailerSearchHit,
+  SaveExternalLabClientRequest,
 } from '@optiworld/shared';
 import { centsToMoney, moneyToCents } from '@optiworld/shared';
 import { z } from 'zod';
@@ -16,14 +17,104 @@ import { AppError } from '../lib/errors.js';
 
 const HOUR_MS = 3_600_000;
 
+export async function createExternalLabClient(
+  auth: AuthSessionUser,
+  input: SaveExternalLabClientRequest,
+): Promise<LabClientRow> {
+  const labOrgId = requireLab(auth);
+  await assertClientNameFree(labOrgId, input.name, null);
+  const created = await prisma.labClient.create({
+    data: {
+      labOrgId,
+      name: input.name.trim(),
+      phone: blankToNull(input.phone),
+      city: blankToNull(input.city),
+      address: blankToNull(input.address),
+      about: blankToNull(input.about),
+      status: 'APPROVED',
+    },
+    include: { linkedOrg: { select: clientOrgSelect } },
+  });
+  await prisma.auditLog.create({
+    data: {
+      orgId: labOrgId,
+      userId: auth.userId,
+      action: 'LAB_CLIENT_CREATED',
+      entityType: 'LabClient',
+      entityId: created.id,
+      metadata: { name: created.name },
+    },
+  });
+  return toClientRow(created, []);
+}
+
+export async function updateExternalLabClient(
+  auth: AuthSessionUser,
+  clientId: string,
+  input: SaveExternalLabClientRequest,
+): Promise<LabClientRow> {
+  const labOrgId = requireLab(auth);
+  const existing = await prisma.labClient.findFirst({
+    where: { id: clientId, labOrgId, status: 'APPROVED' },
+    select: { id: true, linkedOrgId: true },
+  });
+  if (!existing) {
+    throw new AppError(404, 'NOT_FOUND', 'That client could not be found');
+  }
+  if (existing.linkedOrgId) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'An OptiWorld shop keeps its own profile.');
+  }
+  await assertClientNameFree(labOrgId, input.name, existing.id);
+  const updated = await prisma.labClient.update({
+    where: { id: existing.id },
+    data: {
+      name: input.name.trim(),
+      phone: blankToNull(input.phone),
+      city: blankToNull(input.city),
+      address: blankToNull(input.address),
+      about: blankToNull(input.about),
+    },
+    include: { linkedOrg: { select: clientOrgSelect } },
+  });
+  const jobs = await prisma.labJob.findMany({
+    where: { labOrgId, labClientId: updated.id },
+    select: {
+      id: true,
+      referenceNumber: true,
+      patientName: true,
+      status: true,
+      labClientId: true,
+      retailerOrgId: true,
+      createdAt: true,
+      labBill: { select: { status: true, total: true } },
+    },
+  });
+  await prisma.auditLog.create({
+    data: {
+      orgId: labOrgId,
+      userId: auth.userId,
+      action: 'LAB_CLIENT_UPDATED',
+      entityType: 'LabClient',
+      entityId: updated.id,
+      metadata: { name: updated.name },
+    },
+  });
+  return toClientRow(updated, jobs);
+}
+
+const clientOrgSelect = {
+  username: true,
+  city: true,
+  address: true,
+  listingProfileNotes: true,
+} as const;
+
 export async function listLabClients(auth: AuthSessionUser): Promise<LabClientRow[]> {
   const labOrgId = requireLab(auth);
   const clients = await prisma.labClient.findMany({
     where: { labOrgId, status: 'APPROVED' },
     include: {
-      linkedOrg: {
-        select: { username: true, city: true, address: true, listingProfileNotes: true },
-      },
+      linkedOrg: { select: clientOrgSelect },
     },
     orderBy: { name: 'asc' },
   });
@@ -57,9 +148,7 @@ export async function listLabClientJobs(
   const client = await prisma.labClient.findFirst({
     where: { id: clientId, labOrgId, status: 'APPROVED' },
     include: {
-      linkedOrg: {
-        select: { username: true, city: true, address: true, listingProfileNotes: true },
-      },
+      linkedOrg: { select: clientOrgSelect },
     },
   });
   if (!client) {
@@ -310,6 +399,9 @@ function toClientRow(
     id: string;
     name: string;
     phone: string | null;
+    city: string | null;
+    address: string | null;
+    about: string | null;
     linkedOrgId: string | null;
     updatedAt: Date;
     linkedOrg: {
@@ -344,9 +436,9 @@ function toClientRow(
     name: client.name,
     username: client.linkedOrg?.username ?? null,
     phone: client.phone,
-    city: client.linkedOrg?.city ?? null,
-    address: client.linkedOrg?.address ?? null,
-    about: client.linkedOrg?.listingProfileNotes ?? null,
+    city: client.linkedOrg?.city ?? client.city,
+    address: client.linkedOrg?.address ?? client.address,
+    about: client.linkedOrg?.listingProfileNotes ?? client.about,
     connectedAt: client.updatedAt.toISOString(),
     type: client.linkedOrgId ? 'OPTIWORLD' : 'EXTERNAL',
     totalJobs: ordered.length,
@@ -511,6 +603,30 @@ function findRetailer(query: string): Promise<OrgCard | null> {
     },
     select: orgCardSelect,
   });
+}
+
+async function assertClientNameFree(
+  labOrgId: string,
+  name: string,
+  exceptId: string | null,
+): Promise<void> {
+  const clash = await prisma.labClient.findFirst({
+    where: {
+      labOrgId,
+      status: 'APPROVED',
+      ...(exceptId ? { id: { not: exceptId } } : {}),
+      name: { equals: name.trim(), mode: 'insensitive' },
+    },
+    select: { id: true },
+  });
+  if (clash) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'A client with this name is already on the list.');
+  }
+}
+
+function blankToNull(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function requireLab(auth: AuthSessionUser): string {

@@ -789,6 +789,7 @@ export async function reopenDispatchedLabJob(
       labOrgId: true,
       retailerOrgId: true,
       retailerInvoiceId: true,
+      notes: true,
     },
   });
   if (!job) {
@@ -802,7 +803,11 @@ export async function reopenDispatchedLabJob(
   await prisma.$transaction(async (tx) => {
     await tx.labJob.update({
       where: { id: job.id },
-      data: { status: 'CUTTING', completedAt: null },
+      data: {
+        status: 'CUTTING',
+        completedAt: null,
+        notes: joinJobNote(job.notes, savedReason),
+      },
     });
     await tx.labJobStatusHistory.create({
       data: { labJobId: job.id, status: 'CUTTING', notes: note, changedByUserId: auth.userId },
@@ -831,7 +836,7 @@ export async function reopenDispatchedLabJob(
     });
     await refreshDeliveryForInvoice(tx, job.retailerInvoiceId);
   });
-  return { id: job.id, message: 'The job is back in processing. The note is on its history.' };
+  return { id: job.id, message: 'The job is back in processing. The note stays on the job.' };
 }
 
 export async function cancelRetailerLabJob(
@@ -1365,6 +1370,18 @@ async function logJobWhatsApp(
       metadata: { detail: detail.slice(0, 500) },
     },
   });
+}
+
+function joinJobNote(current: string | null, reason: string): string {
+  const previous = current?.trim() ?? '';
+  if (previous.length === 0) {
+    return reason;
+  }
+  if (previous.split('\n').some((line) => line.trim() === reason)) {
+    return previous;
+  }
+  const next = `${previous}\n${reason}`;
+  return next.length > 2_000 ? next.slice(0, 2_000) : next;
 }
 
 function requireRetailer(auth: AuthSessionUser): string {

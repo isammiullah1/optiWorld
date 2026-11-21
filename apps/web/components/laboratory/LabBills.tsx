@@ -18,6 +18,9 @@ import {
   addLabBillLine,
   adjustLabBill,
   clearLabBill,
+  clearLabBills,
+  remindLabBills,
+  whatsappLabBillStatement,
   collectWalkInBalance,
   downloadLaboratoryBills,
   issueLabBill,
@@ -28,6 +31,7 @@ import {
 } from './lab-api';
 import { RefusedJobs } from './RefusedJobs';
 import { ShopStatement } from './ShopStatement';
+import { useCloseOnEscape } from './use-close-on-escape';
 import { WalkInInvoice } from './WalkInInvoice';
 
 export function LabBills({ labClientId }: { labClientId?: string }): React.ReactElement {
@@ -42,7 +46,16 @@ export function LabBills({ labClientId }: { labClientId?: string }): React.React
   const [clients, setClients] = useState<LabClientRow[]>([]);
   const [editing, setEditing] = useState<LabBill | null>(null);
   const [invoice, setInvoice] = useState<LabBill | null>(null);
-  const [statement, setStatement] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [paying, setPaying] = useState(false);
+  const [statement, setStatement] = useState<{
+    title: string;
+    rows: LabBill[];
+  } | null>(null);
+  const [billStatus, setBillStatus] = useState<'ALL' | 'OPEN' | 'ISSUED' | 'CLEARED'>('ALL');
+  const [whatsappBusy, setWhatsappBusy] = useState(false);
+  const [whatsappNote, setWhatsappNote] = useState<string | null>(null);
+  useCloseOnEscape(() => setEditing(null), editing !== null);
 
   function reload(): void {
     if (!token) {
@@ -92,6 +105,15 @@ export function LabBills({ labClientId }: { labClientId?: string }): React.React
       setError(caught instanceof Error ? caught.message : 'The sheet could not be downloaded');
     });
   }
+
+  const listed = (rows ?? []).filter(
+    (bill) => bill.status !== 'VOID' && (billStatus === 'ALL' || bill.status === billStatus),
+  );
+  const pickedBills = listed.filter((bill) => picked.includes(bill.id));
+  const pickedSet = new Set(pickedBills.map((bill) => bill.id));
+  const pickedParty = partyKeyOf(listed, picked);
+  const partyName = pickedBills[0]?.retailerName ?? pickedBills[0]?.clientName ?? 'this retailer';
+  const allIssued = pickedBills.length > 0 && pickedBills.every((bill) => bill.status === 'ISSUED');
 
   return (
     <section className="grid gap-4">
@@ -159,6 +181,28 @@ export function LabBills({ labClientId }: { labClientId?: string }): React.React
         <div className="flex flex-wrap gap-2">
           {(
             [
+              ['ALL', 'All'],
+              ['OPEN', 'Pending'],
+              ['ISSUED', 'Unpaid'],
+              ['CLEARED', 'Paid'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={billStatus === value}
+              className={`min-h-[44px] rounded-lg px-3 text-sm font-medium ${
+                billStatus === value
+                  ? 'bg-navy text-white'
+                  : 'border border-navy bg-white text-navy'
+              }`}
+              onClick={() => setBillStatus(value)}
+            >
+              {label}
+            </button>
+          ))}
+          {(
+            [
               ['day', 'Today'],
               ['week', 'This week'],
               ['month', 'This month'],
@@ -186,7 +230,10 @@ export function LabBills({ labClientId }: { labClientId?: string }): React.React
                 return;
               }
               setError(null);
-              setStatement(true);
+              setStatement({
+                title: 'Joint bill',
+                rows: (rows ?? []).filter((bill) => bill.status !== 'VOID'),
+              });
             }}
           >
             Print statement
@@ -198,9 +245,111 @@ export function LabBills({ labClientId }: { labClientId?: string }): React.React
           {error}
         </p>
       ) : null}
+      {pickedBills.length > 0 ? (
+        <div className="grid gap-2 rounded-xl border-2 border-navy bg-[var(--ow-navy-soft)] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-medium text-ink">
+              {pickedBills.length} {pickedBills.length === 1 ? 'bill' : 'bills'} for {partyName}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="min-h-11 rounded-lg border border-navy bg-white px-3 text-sm font-semibold text-navy"
+                onClick={() => {
+                  const pending = (rows ?? []).filter(
+                    (bill) => canPickBill(bill) && billPartyKey(bill) === pickedParty,
+                  );
+                  setPicked(pending.map((bill) => bill.id));
+                }}
+              >
+                Select pending
+              </button>
+              <button
+                type="button"
+                className="min-h-11 rounded-lg border border-navy bg-white px-3 text-sm font-semibold text-navy"
+                onClick={() => {
+                  if (!token) {
+                    return;
+                  }
+                  setError(null);
+                  void remindLabBills(
+                    token,
+                    pickedBills.map((bill) => bill.id),
+                  )
+                    .then(() => {
+                      setStatement({ title: 'Pending bills', rows: pickedBills });
+                    })
+                    .catch((caught: unknown) => {
+                      setError(
+                        caught instanceof Error ? caught.message : 'The reminder could not be sent',
+                      );
+                    });
+                }}
+              >
+                Send statement
+              </button>
+              {admin ? (
+                <button
+                  type="button"
+                  disabled={!allIssued || paying}
+                  className="min-h-11 rounded-lg bg-teal px-4 text-sm font-semibold text-white disabled:opacity-50"
+                  onClick={() => {
+                    if (!token || !allIssued) {
+                      return;
+                    }
+                    setPaying(true);
+                    setError(null);
+                    void clearLabBills(
+                      token,
+                      pickedBills.map((bill) => bill.id),
+                    )
+                      .then(() => {
+                        setPicked([]);
+                        reload();
+                      })
+                      .catch((caught: unknown) => {
+                        setError(
+                          caught instanceof Error
+                            ? caught.message
+                            : 'The bills could not be marked paid',
+                        );
+                      })
+                      .finally(() => setPaying(false));
+                  }}
+                >
+                  {paying ? 'Saving…' : 'Mark paid'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {admin && !allIssued ? (
+            <p className="text-sm text-ink2">Issue the open bills before marking this set paid.</p>
+          ) : null}
+        </div>
+      ) : null}
       <BillTable
-        rows={rows === null ? null : rows.filter((bill) => bill.status !== 'VOID')}
+        rows={rows === null ? null : listed}
         party="shop"
+        pickedIds={pickedSet}
+        canPick={canPickBill}
+        onPick={(bill) => {
+          const key = billPartyKey(bill);
+          if (!key) {
+            return;
+          }
+          setError(null);
+          setPicked((current) => {
+            if (current.includes(bill.id)) {
+              return current.filter((id) => id !== bill.id);
+            }
+            const currentKey = partyKeyOf(rows ?? [], current);
+            if (currentKey && currentKey !== key) {
+              setError('Select bills for one retailer.');
+              return current;
+            }
+            return [...current, bill.id];
+          });
+        }}
         actions={
           admin
             ? (bill) =>
@@ -317,11 +466,43 @@ export function LabBills({ labClientId }: { labClientId?: string }): React.React
       ) : null}
       {statement ? (
         <ShopStatement
-          shopName={clients.find((client) => client.id === clientId)?.name ?? 'Retailer'}
-          from={from}
-          to={to}
-          rows={rows ?? []}
-          onClose={() => setStatement(false)}
+          shopName={
+            statement.rows[0]?.retailerName ??
+            statement.rows[0]?.clientName ??
+            clients.find((client) => client.id === clientId)?.name ??
+            'Retailer'
+          }
+          title={statement.title}
+          from={from || statementDay(statement.rows, 'first')}
+          to={to || statementDay(statement.rows, 'last')}
+          rows={statement.rows}
+          onClose={() => {
+            setWhatsappNote(null);
+            setStatement(null);
+          }}
+          whatsappBusy={whatsappBusy}
+          whatsappNote={whatsappNote}
+          onWhatsapp={
+            statement.title === 'Pending bills' && token
+              ? () => {
+                  setWhatsappBusy(true);
+                  setWhatsappNote(null);
+                  void whatsappLabBillStatement(
+                    token,
+                    statement.rows.map((bill) => bill.id),
+                  )
+                    .then((result) => setWhatsappNote(result.message))
+                    .catch((caught: unknown) => {
+                      setWhatsappNote(
+                        caught instanceof Error
+                          ? caught.message
+                          : 'WhatsApp could not send the statement',
+                      );
+                    })
+                    .finally(() => setWhatsappBusy(false));
+                }
+              : undefined
+          }
         />
       ) : null}
     </section>
@@ -585,6 +766,30 @@ function BillEditor({
 
 function isWalkInBill(bill: LabBill): boolean {
   return bill.retailerName === null && bill.clientName === null;
+}
+
+function canPickBill(bill: LabBill): boolean {
+  return !isWalkInBill(bill) && (bill.status === 'OPEN' || bill.status === 'ISSUED');
+}
+
+function billPartyKey(bill: LabBill): string | null {
+  if (!canPickBill(bill)) {
+    return null;
+  }
+  return `${bill.retailerName ?? ''}|${bill.clientName ?? ''}`;
+}
+
+function partyKeyOf(rows: readonly LabBill[], ids: readonly string[]): string | null {
+  const bill = rows.find((row) => ids.includes(row.id));
+  return bill ? billPartyKey(bill) : null;
+}
+
+function statementDay(rows: readonly LabBill[], edge: 'first' | 'last'): string {
+  const days = rows.map((row) => new Date(row.createdAt).toLocaleDateString('en-CA')).sort();
+  if (days.length === 0) {
+    return new Date().toLocaleDateString('en-CA');
+  }
+  return edge === 'first' ? (days[0] ?? '') : (days[days.length - 1] ?? '');
 }
 
 function periodRange(kind: 'day' | 'week' | 'month'): { from: string; to: string } {

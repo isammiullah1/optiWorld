@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   AddLabBillLineSchema,
   LabBillAdjustmentRequestSchema,
+  LabBillIdsSchema,
   LabBillListQuerySchema,
   SaveLabServiceSchema,
   UpdateLabBillSchema,
@@ -16,11 +17,14 @@ import {
   addLabBillLine,
   adjustIssuedLabBill,
   clearLabBill,
+  clearLabBills,
   collectWalkInBalance,
   exportLaboratoryBills,
   exportRetailerLabBills,
   issueLabBill,
   listLaboratoryBills,
+  remindLabBills,
+  whatsappLabBillStatement,
   listLabServices,
   listPricedServicesForShop,
   listRetailerLabBills,
@@ -104,6 +108,21 @@ export function createLabBillsController() {
     clear: asyncHandler(async (req: Request, res: Response) => {
       const params = IdSchema.parse(req.params);
       const data = await clearLabBill(requireSession(req), params.id);
+      res.status(200).json({ success: true, data });
+    }),
+    clearMany: asyncHandler(async (req: Request, res: Response) => {
+      const input = LabBillIdsSchema.parse(req.body);
+      const data = await clearLabBills(requireSession(req), input.billIds);
+      res.status(200).json({ success: true, data });
+    }),
+    remind: asyncHandler(async (req: Request, res: Response) => {
+      const input = LabBillIdsSchema.parse(req.body);
+      const data = await remindLabBills(requireSession(req), input.billIds);
+      res.status(200).json({ success: true, data });
+    }),
+    whatsapp: asyncHandler(async (req: Request, res: Response) => {
+      const input = LabBillIdsSchema.parse(req.body);
+      const data = await whatsappLabBillStatement(requireSession(req), input.billIds);
       res.status(200).json({ success: true, data });
     }),
     collect: asyncHandler(async (req: Request, res: Response) => {

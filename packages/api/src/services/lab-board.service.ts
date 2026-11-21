@@ -16,6 +16,7 @@ import {
   isProcessingStatus,
   labDayMonth,
   labJobNeedsLabDecision,
+  moneyToCents,
   nextProductTag,
 } from '@optiworld/shared';
 
@@ -68,8 +69,15 @@ export async function listLabBoard(
         : {}),
     },
     include: {
-      retailer: { select: { id: true, name: true, billLogoKey: true } },
-      labClient: { select: { name: true, linkedOrg: { select: { billLogoKey: true } } } },
+      retailer: { select: { id: true, name: true, billLogoKey: true, address: true, city: true } },
+      labClient: {
+        select: {
+          name: true,
+          address: true,
+          city: true,
+          linkedOrg: { select: { billLogoKey: true, address: true, city: true } },
+        },
+      },
       statusHistory: {
         orderBy: { changedAt: 'desc' },
         take: 8,
@@ -117,6 +125,8 @@ export async function listLabBoard(
       isUrgent: job.isUrgent,
       rxSummary: rxSummary(job.prescription),
       services: job.labBill?.lines.map((line) => line.serviceName) ?? [],
+      notes: job.notes,
+      shipTo: shipToLine(job),
       stageNote: closingNote(job)?.notes ?? null,
       closedByName: closingNote(job)?.changedByUser?.name ?? null,
       stageEnteredAt: stageEnteredAt(job.status, job.createdAt, job.statusHistory),
@@ -173,6 +183,7 @@ export async function createLabBoardJob(
       );
     }
   }
+  const delivery = walkInDelivery(linked, input);
   const created = await prisma.$transaction(async (tx) => {
     const job = await tx.labJob.create({
       data: {
@@ -186,6 +197,8 @@ export async function createLabBoardJob(
         frameDetails: boardFrame(input),
         lensDetails: boardLens(input),
         specialInstructions: blankToNull(input.specialInstructions),
+        deliveryAddress: delivery.address,
+        deliveryCharge: delivery.charge,
         status: 'RECEIVED',
         statusHistory: { create: { status: 'RECEIVED', changedByUserId: auth.userId } },
       },
@@ -199,6 +212,7 @@ export async function createLabBoardJob(
       retailerInvoiceId: null,
       serviceIds: input.serviceIds,
       servicePrices: input.servicePrices,
+      deliveryCharge: delivery.charge,
     });
     if (!linked.retailerOrgId && !linked.labClientId) {
       await settleWalkInOpening(tx, job.id, input.amountReceived, auth.userId);
@@ -315,18 +329,16 @@ export async function updateLabJobNotes(
   if (!job) {
     throw new AppError(404, 'NOT_FOUND', 'Lab job not found');
   }
+  if (
+    job.status === 'DISPATCHED' ||
+    job.status === 'CANCELLED' ||
+    job.status === 'REJECTED' ||
+    job.status === 'OUTSOURCED'
+  ) {
+    throw new AppError(409, 'ORDER_LOCKED', 'This job note stays as it was recorded.');
+  }
   const saved = blankToNull(notes);
-  const latest = await prisma.labJobStatusHistory.findFirst({
-    where: { labJobId: job.id, status: job.status },
-    orderBy: { changedAt: 'desc' },
-    select: { id: true },
-  });
-  await prisma.$transaction(async (tx) => {
-    await tx.labJob.update({ where: { id: job.id }, data: { notes: saved } });
-    if (latest) {
-      await tx.labJobStatusHistory.update({ where: { id: latest.id }, data: { notes: saved } });
-    }
-  });
+  await prisma.labJob.update({ where: { id: job.id }, data: { notes: saved } });
   return { notes: saved };
 }
 
@@ -694,8 +706,16 @@ async function loadOwnedJob(auth: AuthSessionUser, jobId: string) {
   const job = await prisma.labJob.findFirst({
     where: { id: jobId, labOrgId },
     include: {
-      lab: { select: { id: true, name: true, phone: true, city: true } },
-      retailer: { select: { id: true, name: true } },
+      lab: { select: { id: true, name: true, phone: true, city: true, address: true } },
+      retailer: { select: { id: true, name: true, address: true, city: true } },
+      labClient: {
+        select: {
+          name: true,
+          address: true,
+          city: true,
+          linkedOrg: { select: { address: true, city: true } },
+        },
+      },
       retailerInvoice: { select: { id: true, invoiceNumber: true } },
       statusHistory: {
         orderBy: { changedAt: 'asc' },
@@ -750,7 +770,12 @@ function toBoardJob(job: Awaited<ReturnType<typeof loadOwnedJob>>): LabBoardJob 
     })),
     shopRequest: null,
   };
-  return { ...detail, isUrgent: job.isUrgent, retailerName: job.retailer?.name ?? null };
+  return {
+    ...detail,
+    isUrgent: job.isUrgent,
+    retailerName: job.retailer?.name ?? job.labClient?.name ?? null,
+    shipTo: shipToLine(job),
+  };
 }
 
 function closingNote(job: {
@@ -880,6 +905,65 @@ function text(value: unknown): string {
     return String(value);
   }
   return '';
+}
+
+function placeLine(
+  address: string | null | undefined,
+  city: string | null | undefined,
+): string | null {
+  const street = address?.trim() ?? '';
+  const town = city?.trim() ?? '';
+  if (street.length === 0) {
+    return town.length === 0 ? null : town;
+  }
+  if (town.length === 0 || street.toLowerCase().includes(town.toLowerCase())) {
+    return street;
+  }
+  return `${street}, ${town}`;
+}
+
+function shipToLine(job: {
+  deliveryAddress?: string | null;
+  retailer?: { address: string | null; city: string | null } | null;
+  labClient?: {
+    address: string | null;
+    city: string | null;
+    linkedOrg?: { address: string | null; city: string | null } | null;
+  } | null;
+}): string | null {
+  const ownDelivery = job.deliveryAddress?.trim() ?? '';
+  if (ownDelivery.length > 0) {
+    return ownDelivery;
+  }
+  const shop = placeLine(job.retailer?.address, job.retailer?.city);
+  if (shop) {
+    return shop;
+  }
+  const client = placeLine(job.labClient?.address, job.labClient?.city);
+  if (client) {
+    return client;
+  }
+  return placeLine(job.labClient?.linkedOrg?.address, job.labClient?.linkedOrg?.city);
+}
+
+function walkInDelivery(
+  linked: { retailerOrgId: string | null; labClientId: string | null },
+  input: CreateLabBoardJobRequest,
+): { address: string | null; charge: string } {
+  const walkIn = linked.retailerOrgId === null && linked.labClientId === null;
+  if (!walkIn) {
+    return { address: null, charge: '0.00' };
+  }
+  const address = blankToNull(input.deliveryAddress);
+  const raw = input.deliveryCharge?.trim() ?? '';
+  const charge = raw.length === 0 ? 0 : moneyToCents(raw);
+  if (address && charge <= 0) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Enter the delivery charges.');
+  }
+  if (!address && charge > 0) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Enter the delivery address.');
+  }
+  return { address, charge: raw.length === 0 ? '0.00' : raw };
 }
 
 function blankToNull(value: string | undefined): string | null {

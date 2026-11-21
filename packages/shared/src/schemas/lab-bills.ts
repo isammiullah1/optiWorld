@@ -110,3 +110,9 @@ export const LabBillAdjustmentRequestSchema = z.object({
 export type LabBillAdjustmentRequest = z.infer<typeof LabBillAdjustmentRequestSchema>;
 
 export const LabServiceIdsSchema = z.array(uuid).min(1, 'Choose at least one lab service.').max(20);
+
+export const LabBillIdsSchema = z.object({
+  billIds: z.array(uuid).min(1, 'Select at least one bill.').max(100),
+});
+
+export type LabBillIdsRequest = z.infer<typeof LabBillIdsSchema>;

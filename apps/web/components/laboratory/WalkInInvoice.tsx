@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { formatRupee, formatShortDate } from '@/components/retailer/dashboard-format';
 
 import { loadLabProfile } from './lab-account-api';
+import { useCloseOnEscape } from './use-close-on-escape';
 
 export function WalkInInvoice({
   token,
@@ -27,6 +28,7 @@ export function WalkInInvoice({
   const total = moneyToCents(bill.total);
   const balance = Math.max(0, total - received);
   const paid = balance === 0;
+  useCloseOnEscape(onClose);
 
   useEffect(() => {
     let active = true;

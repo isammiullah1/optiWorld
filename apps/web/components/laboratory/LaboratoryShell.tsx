@@ -26,7 +26,7 @@ import { LAB_NOTIFICATIONS_CHANGED, loadUnreadNotificationCount } from './lab-no
 
 const NAV = [
   { href: '/laboratory/dashboard', label: 'Dashboard', icon: LayoutDashboard, feature: null },
-  { href: '/laboratory/jobs', label: 'Jobs', icon: Columns3, feature: 'jobs' },
+  { href: '/laboratory/jobs', label: 'Orders', icon: Columns3, feature: 'jobs' },
   { href: '/laboratory/bills', label: 'Lab bills', icon: Receipt, feature: 'jobs' },
   {
     href: '/laboratory/income',

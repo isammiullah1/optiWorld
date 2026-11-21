@@ -28,6 +28,7 @@ import {
   type LabBoardJob,
   type LabClientJobs,
   type LabClientRow,
+  type SaveExternalLabClientRequest,
   type LabRequestLists,
   type LabIncome,
   type LabIncomeQuery,
@@ -291,6 +292,10 @@ const ClientsResponseSchema = z.object({
   success: z.literal(true),
   data: z.array(LabClientRowSchema),
 });
+const ClientResponseSchema = z.object({
+  success: z.literal(true),
+  data: LabClientRowSchema,
+});
 const RequestsResponseSchema = z.object({ success: z.literal(true), data: LabRequestListsSchema });
 const RequestsActionSchema = z.object({ success: z.literal(true), data: LabRetailerRequestSchema });
 const ClientJobsResponseSchema = z.object({ success: z.literal(true), data: LabClientJobsSchema });
@@ -392,6 +397,29 @@ export async function cancelLabRequest(token: string, requestId: string): Promis
 
 export async function loadLabClients(token: string): Promise<LabClientRow[]> {
   const payload = await request(token, '/api/v1/lab/clients', ClientsResponseSchema);
+  return payload.data;
+}
+
+export async function createExternalLabClient(
+  token: string,
+  input: SaveExternalLabClientRequest,
+): Promise<LabClientRow> {
+  const payload = await send(token, '/api/v1/lab/clients', 'POST', input, ClientResponseSchema);
+  return payload.data;
+}
+
+export async function updateExternalLabClient(
+  token: string,
+  clientId: string,
+  input: SaveExternalLabClientRequest,
+): Promise<LabClientRow> {
+  const payload = await send(
+    token,
+    `/api/v1/lab/clients/${clientId}`,
+    'PATCH',
+    input,
+    ClientResponseSchema,
+  );
   return payload.data;
 }
 
@@ -632,6 +660,48 @@ export async function collectWalkInBalance(token: string, billId: string): Promi
     'POST',
     {},
     z.object({ success: z.literal(true), data: LabBillSchema }),
+  );
+  return payload.data;
+}
+
+export async function clearLabBills(token: string, billIds: readonly string[]): Promise<LabBill[]> {
+  const payload = await send(
+    token,
+    '/api/v1/lab/bills/clear-many',
+    'POST',
+    { billIds },
+    z.object({ success: z.literal(true), data: z.array(LabBillSchema) }),
+  );
+  return payload.data;
+}
+
+export async function whatsappLabBillStatement(
+  token: string,
+  billIds: readonly string[],
+): Promise<{ sent: boolean; message: string }> {
+  const payload = await send(
+    token,
+    '/api/v1/lab/bills/whatsapp',
+    'POST',
+    { billIds },
+    z.object({
+      success: z.literal(true),
+      data: z.object({ sent: z.boolean(), message: z.string() }),
+    }),
+  );
+  return payload.data;
+}
+
+export async function remindLabBills(
+  token: string,
+  billIds: readonly string[],
+): Promise<{ notified: boolean }> {
+  const payload = await send(
+    token,
+    '/api/v1/lab/bills/remind',
+    'POST',
+    { billIds },
+    z.object({ success: z.literal(true), data: z.object({ notified: z.boolean() }) }),
   );
   return payload.data;
 }

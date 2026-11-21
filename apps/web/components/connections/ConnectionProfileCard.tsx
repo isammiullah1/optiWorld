@@ -96,6 +96,7 @@ export function ConnectionProfileCard({
   onSend,
   footer,
   statusLabel,
+  badge,
 }: {
   profile: ConnectionProfile;
   busy: boolean;
@@ -104,6 +105,7 @@ export function ConnectionProfileCard({
   onSend: (() => void) | null;
   footer?: React.ReactNode;
   statusLabel?: string;
+  badge?: React.ReactNode;
 }): React.ReactElement {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -170,6 +172,7 @@ export function ConnectionProfileCard({
               {profile.status === 'APPROVED' ? <ConnectionLight /> : null}
               {profile.status ? (statusLabel ?? STATUS_LABEL[profile.status]) : 'Not connected'}
             </span>
+            {badge ? <div className="mt-2">{badge}</div> : null}
           </div>
           <button
             type="button"
