@@ -201,6 +201,7 @@ export const InventoryListSchema = z.object({
   rows: z.array(InventoryBatchSchema),
   categories: z.array(z.string()),
   categoryRules: z.array(InventoryCategoryRuleSchema),
+  stockOnHand: z.number().int().nonnegative().nullable(),
   meta: PageMetaSchema,
 });
 
@@ -286,10 +287,10 @@ export type StockMovementRow = z.infer<typeof StockMovementSchema>;
 export const CostReceiptSchema = z.object({
   id: z.string(),
   occurredAt: z.string().datetime(),
-  kind: z.enum(['OPENING', 'RECEIVED']),
+  kind: z.enum(['OPENING', 'RECEIVED', 'CORRECTION']),
   quantity: z.number().int().positive(),
   unitCost: money.nullable(),
-  lineCost: money.nullable(),
+  lineCost: signedMoney.nullable(),
 });
 
 export type CostReceipt = z.infer<typeof CostReceiptSchema>;

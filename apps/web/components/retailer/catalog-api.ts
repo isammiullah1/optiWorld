@@ -198,6 +198,15 @@ export async function cancelRetailerOrder(accessToken: string, orderId: string):
   await sendJson(`/api/v1/orders/${orderId}/cancel`, accessToken, {}, SavedOrderSchema);
 }
 
+export async function confirmRetailerOrder(accessToken: string, orderId: string): Promise<void> {
+  await sendJson(
+    `/api/v1/orders/${orderId}/confirm`,
+    accessToken,
+    {},
+    z.object({ success: z.literal(true), data: z.object({ orderId: z.string() }) }),
+  );
+}
+
 export async function requestRetailerOrderCancellation(
   accessToken: string,
   orderId: string,

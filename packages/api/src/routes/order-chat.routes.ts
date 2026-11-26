@@ -36,8 +36,8 @@ export function createOrderChatRouter(): Router {
   router.post(
     '/:orderId/confirm',
     ...sessionChain,
-    requireOrgType('WHOLESALER'),
-    requireRole('ADMIN', 'ORDER_HANDLER'),
+    requireOrgType('RETAILER', 'WHOLESALER'),
+    requireRole('OWNER', 'STAFF', 'ADMIN', 'ORDER_HANDLER'),
     controller.confirm,
   );
   router.patch(

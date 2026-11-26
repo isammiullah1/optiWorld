@@ -124,6 +124,11 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum OrderSettlement {
+  CASH
+  CREDIT
+}
+
 enum MessageType {
   TEXT
   SYSTEM
@@ -344,6 +349,7 @@ model CustomerPrescription {
   customerId String   @map("customer_id") @db.Uuid
   right      Json
   left       Json
+  title      String   @default("") @db.VarChar(40)
   add        String   @default("")
   pd         String   @default("")
   notes      String?  @db.Text
@@ -576,6 +582,8 @@ model Order {
   totalValue      Decimal?    @map("total_value") @db.Decimal(12, 2)
   notes           String?     @db.Text
   lockedAt        DateTime?   @map("locked_at")
+  settlement      OrderSettlement?
+  amountReceived  Decimal     @default(0) @map("amount_received") @db.Decimal(12, 2)
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
@@ -583,6 +591,7 @@ model Order {
   retailer       Organisation       @relation("RetailerOrders", fields: [retailerOrgId], references: [id], onDelete: Restrict)
   connection     RetailerConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
   items          OrderItem[]
+  receipts       OrderReceipt[]
   chatThread     ChatThread?
   changeRequests ChangeRequest[]
 
@@ -611,6 +620,23 @@ model OrderItem {
   @@index([orderId])
   @@index([catalogProductId])
   @@map("order_items")
+}
+
+model OrderReceipt {
+  id               String   @id @default(uuid()) @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  wholesalerOrgId  String   @map("wholesaler_org_id") @db.Uuid
+  retailerOrgId    String   @map("retailer_org_id") @db.Uuid
+  amount           Decimal  @db.Decimal(12, 2)
+  notes            String?  @db.Text
+  recordedByUserId String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt       DateTime @default(now()) @map("recorded_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([wholesalerOrgId, retailerOrgId, recordedAt])
+  @@map("order_receipts")
 }
 
 // ── Order chat ─────────────────────────────────────────────────────────────

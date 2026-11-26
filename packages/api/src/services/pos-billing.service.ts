@@ -18,6 +18,7 @@ import {
 
 import { billLogoPath } from '../lib/bill-logo-store.js';
 import { AppError } from '../lib/errors.js';
+import { isShopOwner, requiredShopOrgId } from '../lib/shop-org.js';
 import { openLabBill } from './lab-bills.service.js';
 import { deliveryChargeCents, recordInvoiceDelivery } from './deliveries.service.js';
 import { invoiceActivity } from './record-activity.js';
@@ -425,11 +426,13 @@ export async function getPosReceipt(auth: AuthSessionUser, invoiceId: string): P
       items: {
         select: {
           id: true,
+          inventoryBatchId: true,
           productName: true,
           priceCode: true,
           quantity: true,
           unitPrice: true,
           prescription: true,
+          inventoryBatch: { select: { costPrice: true } },
         },
         orderBy: { productName: 'asc' },
       },
@@ -456,6 +459,15 @@ export async function getPosReceipt(auth: AuthSessionUser, invoiceId: string): P
   const discountCents = moneyToCents(money(invoice.discount));
   const totalCents = moneyToCents(money(invoice.total));
   const deliveryCents = invoice.delivery ? moneyToCents(money(invoice.delivery.charge)) : 0;
+  const cancelled = invoice.cancelledAt !== null;
+  const costing = isShopOwner(auth)
+    ? await billCosting(
+        orgId,
+        invoice.id,
+        cancelled ? [] : invoice.items,
+        cancelled ? 0 : totalCents,
+      )
+    : null;
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
@@ -499,6 +511,7 @@ export async function getPosReceipt(auth: AuthSessionUser, invoiceId: string): P
     })),
     items: invoice.items.map((item) => ({
       id: item.id,
+      inventoryBatchId: item.inventoryBatchId,
       productName: item.productName,
       priceCode: item.priceCode,
       quantity: item.quantity,
@@ -508,6 +521,58 @@ export async function getPosReceipt(auth: AuthSessionUser, invoiceId: string): P
       prescription: receiptReading(item.prescription),
     })),
     activity,
+    costing,
+  };
+}
+
+async function billCosting(
+  orgId: string,
+  invoiceId: string,
+  items: readonly {
+    productName: string;
+    priceCode: string;
+    quantity: number;
+    inventoryBatch: { costPrice: { toFixed: (digits: number) => string } } | null;
+  }[],
+  saleCents: number,
+): Promise<PosReceipt['costing']> {
+  let inventoryCost = 0;
+  let inventoryCostMissing = false;
+  const lines = items.map((item) => {
+    const unitCost = item.inventoryBatch ? moneyToCents(money(item.inventoryBatch.costPrice)) : 0;
+    if (unitCost <= 0) {
+      inventoryCostMissing = true;
+      return {
+        productName: item.productName,
+        priceCode: item.priceCode,
+        quantity: item.quantity,
+        cost: null,
+      };
+    }
+    const lineCost = item.quantity * unitCost;
+    inventoryCost += lineCost;
+    return {
+      productName: item.productName,
+      priceCode: item.priceCode,
+      quantity: item.quantity,
+      cost: centsToMoney(lineCost),
+    };
+  });
+  const labBills = await prisma.labBill.findMany({
+    where: {
+      retailerOrgId: orgId,
+      retailerInvoiceId: invoiceId,
+      status: { in: ['OPEN', 'ISSUED', 'CLEARED'] },
+    },
+    select: { total: true },
+  });
+  const labCost = labBills.reduce((sum, bill) => sum + moneyToCents(money(bill.total)), 0);
+  return {
+    inventoryCost: centsToMoney(inventoryCost),
+    labCost: centsToMoney(labCost),
+    profit: centsToMoney(saleCents - inventoryCost - labCost),
+    inventoryCostMissing,
+    lines,
   };
 }
 
@@ -705,6 +770,7 @@ function isLabProduct(line: {
 }
 
 type LineReading = {
+  title?: string;
   right: LabPrescription['right'];
   left: LabPrescription['left'];
   add: string;
@@ -751,6 +817,7 @@ export async function attachLineLabJobs(
       prescription: {
         labOrgId,
         referenceNumber: await allocateLabReference(tx),
+        title: line.reading.title?.trim() ?? '',
         right: line.reading.right,
         left: line.reading.left,
         add: line.reading.add,
@@ -967,6 +1034,7 @@ function receiptReading(value: unknown): PosReceipt['items'][number]['prescripti
   }
   const record = value as Record<string, unknown>;
   const reading = {
+    title: receiptText(record.title),
     right: receiptEye(record.right),
     left: receiptEye(record.left),
     add: receiptText(record.add),
@@ -991,16 +1059,22 @@ function receiptReading(value: unknown): PosReceipt['items'][number]['prescripti
   return filled ? parsed.data : null;
 }
 
-function receiptEye(value: unknown): { sphere: string; cylinder: string; axis: string } {
+function receiptEye(value: unknown): {
+  sphere: string;
+  cylinder: string;
+  axis: string;
+  add?: string;
+} {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { sphere: '', cylinder: '', axis: '' };
   }
   const eye = value as Record<string, unknown>;
-  return {
+  const reading = {
     sphere: receiptText(eye.sphere),
     cylinder: receiptText(eye.cylinder),
     axis: receiptText(eye.axis),
   };
+  return typeof eye.add === 'string' ? { ...reading, add: eye.add } : reading;
 }
 
 function receiptText(value: unknown): string {
@@ -1015,14 +1089,20 @@ function prescriptionText(value: unknown): string | null {
   if (typeof record.summary === 'string' && record.summary.length > 0) {
     return record.summary;
   }
+  const sharedAdd = typeof record.add === 'string' ? record.add : '';
+  const rightAdd = eyeAdd(record.right, sharedAdd);
+  const leftAdd = eyeAdd(record.left, sharedAdd);
   const right = eyeText(record.right);
   const left = eyeText(record.left);
-  if (!right && !left) {
+  if (!right && !left && !rightAdd && !leftAdd) {
     return null;
   }
-  const parts = [`R ${right ?? '—'} · L ${left ?? '—'}`];
-  if (typeof record.add === 'string' && record.add.trim()) {
-    parts.push(`Add ${record.add.trim()}`);
+  const parts = [
+    `R ${withEyeAdd(right ?? '—', rightAdd, leftAdd)} · L ${withEyeAdd(left ?? '—', leftAdd, rightAdd)}`,
+  ];
+  if (rightAdd && rightAdd === leftAdd) {
+    parts[0] = `R ${right ?? '—'} · L ${left ?? '—'}`;
+    parts.push(`Add ${rightAdd}`);
   }
   if (typeof record.pd === 'string' && record.pd.trim()) {
     parts.push(`PD ${record.pd.trim()}`);
@@ -1047,13 +1127,25 @@ function eyeText(value: unknown): string | null {
   return `${sphere || '—'} / ${cylinder || '—'} × ${axis || '—'}`;
 }
 
+function eyeAdd(value: unknown, shared: string): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return shared.trim();
+  }
+  const eye = value as Record<string, unknown>;
+  return typeof eye.add === 'string' ? eye.add.trim() : shared.trim();
+}
+
+function withEyeAdd(eye: string, add: string, other: string): string {
+  if (!add || add === other) {
+    return eye;
+  }
+  return `${eye} Add ${add}`;
+}
+
 function money(value: { toFixed: (digits: number) => string }): string {
   return value.toFixed(2);
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (auth.orgType !== 'RETAILER' || !auth.orgId) {
-    throw new AppError(403, 'FORBIDDEN', 'A retailer organisation is required');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }

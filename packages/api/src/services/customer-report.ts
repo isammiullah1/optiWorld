@@ -7,6 +7,7 @@ import {
 } from '@optiworld/shared';
 
 import { AppError } from '../lib/errors.js';
+import { requiredShopOrgId } from '../lib/shop-org.js';
 import { getAgingReport } from './ledger.service.js';
 
 const DAY_MS = 86_400_000;
@@ -164,8 +165,5 @@ function parseRange(
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (!auth.orgId || auth.orgType !== 'RETAILER') {
-    throw new AppError(403, 'FORBIDDEN', 'This area is not available for your organisation');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }

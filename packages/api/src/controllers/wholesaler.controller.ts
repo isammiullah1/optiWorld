@@ -10,6 +10,8 @@ import {
   SaveCatalogProductSchema,
   UpdateWholesalerListingProfileSchema,
   WholesalerOrderListQuerySchema,
+  CreateWholesalerOrderSchema,
+  ReceiveRetailerCreditSchema,
   type AuthSessionUser,
 } from '@optiworld/shared';
 import { z } from 'zod';
@@ -31,6 +33,11 @@ import {
   getWholesalerShell,
   listWholesalerOrders,
 } from '../services/wholesaler-dashboard.service.js';
+import {
+  createWholesalerOrder,
+  getWholesalerLedger,
+  receiveRetailerCredit,
+} from '../services/wholesaler-counter-orders.service.js';
 import {
   approveWholesalerConnection,
   cancelWholesalerRequest,
@@ -74,6 +81,20 @@ export function createWholesalerController() {
           pipeline: result.pipeline,
         },
       });
+    }),
+    createOrder: asyncHandler(async (req: Request, res: Response) => {
+      const input = CreateWholesalerOrderSchema.parse(req.body);
+      const data = await createWholesalerOrder(session(req), input);
+      res.status(201).json({ success: true, data });
+    }),
+    ledger: asyncHandler(async (req: Request, res: Response) => {
+      const data = await getWholesalerLedger(session(req));
+      res.status(200).json({ success: true, data });
+    }),
+    receiveCredit: asyncHandler(async (req: Request, res: Response) => {
+      const input = ReceiveRetailerCreditSchema.parse(req.body);
+      const data = await receiveRetailerCredit(session(req), input);
+      res.status(200).json({ success: true, data });
     }),
     listCatalog: asyncHandler(async (req: Request, res: Response) => {
       const query = CatalogListQuerySchema.parse(req.query);

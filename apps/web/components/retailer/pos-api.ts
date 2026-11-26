@@ -19,6 +19,8 @@ import {
 } from '@optiworld/shared';
 import { z } from 'zod';
 
+import { shopApiPath } from '@/lib/shop-scope';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const InventoryResponseSchema = z.object({
@@ -88,6 +90,26 @@ export async function loadPosReceipt(accessToken: string, invoiceId: string): Pr
     `/api/v1/retailer/invoices/${invoiceId}/receipt`,
     accessToken,
     ReceiptResponseSchema,
+  );
+  return response.data;
+}
+
+export async function editPosInvoice(
+  accessToken: string,
+  invoiceId: string,
+  input: {
+    items: readonly { itemId: string; quantity: number; unitPrice: string }[];
+    additions: readonly { inventoryBatchId: string; quantity: number; unitPrice: string }[];
+    discount: string;
+    paymentType: 'CASH' | 'CREDIT';
+    amountReceived?: string;
+  },
+): Promise<InvoiceNotice> {
+  const response = await sendJson(
+    `/api/v1/retailer/invoices/${invoiceId}/edit`,
+    accessToken,
+    input,
+    NoticeResponseSchema,
   );
   return response.data;
 }
@@ -198,7 +220,7 @@ export async function sendPosReceipt(
 }
 
 async function getJson<T>(path: string, accessToken: string, schema: z.ZodType<T>): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
   return readResponse(response, schema);
@@ -210,7 +232,7 @@ async function sendJson<T>(
   body: unknown,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${accessToken}`,

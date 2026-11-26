@@ -15,6 +15,7 @@ export const EyeSummarySchema = z.object({
   sphere: z.string(),
   cylinder: z.string(),
   axis: z.string(),
+  add: z.string().optional(),
 });
 
 export const LabConnectionSchema = z.object({
@@ -339,6 +340,7 @@ const EyePowerSchema = z.object({
   sphere: z.string().max(20),
   cylinder: z.string().max(20),
   axis: z.string().max(20),
+  add: z.string().max(20).optional(),
 });
 
 export const CreateDirectLabJobSchema = z
@@ -348,6 +350,7 @@ export const CreateDirectLabJobSchema = z
     labOrgId: uuid,
     right: EyePowerSchema,
     left: EyePowerSchema,
+    title: z.string().trim().max(40).optional(),
     add: z.string().max(20).default(''),
     pd: z.string().max(20).default(''),
     notes: z.string().max(500).default(''),

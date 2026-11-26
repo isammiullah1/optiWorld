@@ -25,6 +25,9 @@ export function createWholesalerRouter(): Router {
   router.get('/shell', ...chain, controller.shell);
   router.get('/dashboard', ...chain, controller.dashboard);
   router.get('/orders', ...chain, controller.orders);
+  router.post('/orders', ...chain, controller.createOrder);
+  router.get('/ledger', ...chain, controller.ledger);
+  router.post('/ledger/payments', ...chain, controller.receiveCredit);
   router.get('/retailers/search', ...chain, controller.searchRetailers);
   router.post('/retailers/connect', ...chain, controller.connectRetailer);
   router.get('/connections', ...chain, controller.connections);

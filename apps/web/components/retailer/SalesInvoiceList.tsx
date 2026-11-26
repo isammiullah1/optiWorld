@@ -22,6 +22,8 @@ import {
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
+import { shopPagePath } from '@/lib/shop-scope';
+
 import { RecordTrail } from '@/components/RecordTrail';
 
 import { formatRupee, formatShortDate, invoiceStatusLabel } from './dashboard-format';
@@ -31,14 +33,23 @@ type Sale = SalesReport['invoices'][number];
 
 const PAGE_SIZES = [10, 20, 30, 40] as const;
 
+type PaymentFilter = '' | 'CASH' | 'CREDIT';
+
 type Filters = {
   query: string;
   gender: '' | CustomerGender;
+  payment: PaymentFilter;
   minAmount: string;
   maxAmount: string;
   from: string;
   to: string;
 };
+
+const PAYMENT_FILTERS = [
+  { id: '', label: 'All bills' },
+  { id: 'CASH', label: 'Cash' },
+  { id: 'CREDIT', label: 'Credit' },
+] as const satisfies readonly { id: PaymentFilter; label: string }[];
 
 export function SalesInvoiceList({
   invoices,
@@ -60,6 +71,7 @@ export function SalesInvoiceList({
   const [draft, setDraft] = useState<Filters>({
     query: '',
     gender: '',
+    payment: '',
     minAmount: '',
     maxAmount: '',
     from,
@@ -166,6 +178,26 @@ export function SalesInvoiceList({
           >
             Deleted bills
           </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-ink2">Payment</span>
+          {PAYMENT_FILTERS.map((option) => {
+            const selected = draft.payment === option.id;
+            return (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => {
+                  setDraft((current) => ({ ...current, payment: option.id }));
+                  setApplied((current) => ({ ...current, payment: option.id }));
+                }}
+                className={`h-9 rounded-full px-4 text-sm font-medium ${paymentFilterClass(option.id, selected)}`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           <Field
@@ -385,7 +417,7 @@ function SaleRow({
         <td className="px-3 py-2 text-sm font-medium text-ink">#{invoice.invoiceNumber}</td>
         <td className="px-3 py-2">
           <Link
-            href={`/retailer/customers/${invoice.customerId}`}
+            href={shopPagePath(`/retailer/customers/${invoice.customerId}`)}
             className="inline-flex items-center gap-1 text-sm font-medium text-action"
           >
             <GenderMark gender={invoice.gender} />
@@ -439,15 +471,17 @@ function SaleRow({
         <td className="px-3 py-2">
           <div className="flex flex-wrap items-center gap-1">
             <Link
-              href={`/retailer/billing/${invoice.id}`}
+              href={shopPagePath(`/retailer/billing/${invoice.id}`)}
               className="inline-flex min-h-8 items-center gap-1 rounded-lg px-1 text-xs font-medium text-action"
             >
               <Eye size={14} aria-hidden="true" />
               View
             </Link>
-            {canEdit && !invoice.cancelled && (credit || invoice.hasPrescription) ? (
+            {canEdit && !invoice.cancelled ? (
               <Link
-                href={`/retailer/billing/${invoice.id}${credit ? '?edit=credit' : ''}`}
+                href={shopPagePath(
+                  `/retailer/billing/${invoice.id}?edit=${credit ? 'credit' : 'items'}`,
+                )}
                 className="inline-flex min-h-8 items-center gap-1 rounded-lg px-1 text-xs font-medium text-amber"
               >
                 <Pencil size={14} aria-hidden="true" />
@@ -650,6 +684,12 @@ function matches(invoice: Sale, filters: Filters): boolean {
   if (filters.gender && invoice.gender !== filters.gender) {
     return false;
   }
+  if (filters.payment === 'CREDIT' && invoice.paymentType !== 'CREDIT') {
+    return false;
+  }
+  if (filters.payment === 'CASH' && invoice.paymentType === 'CREDIT') {
+    return false;
+  }
   const total = Number(invoice.total);
   const min = numberOrNull(filters.minAmount);
   const max = numberOrNull(filters.maxAmount);
@@ -667,6 +707,19 @@ function matches(invoice: Sale, filters: Filters): boolean {
     .join(' ')
     .toLowerCase();
   return haystack.includes(query);
+}
+
+function paymentFilterClass(payment: PaymentFilter, selected: boolean): string {
+  if (!selected) {
+    return 'border border-line bg-white text-ink2';
+  }
+  if (payment === 'CREDIT') {
+    return 'bg-amber text-white';
+  }
+  if (payment === 'CASH') {
+    return 'bg-action text-white';
+  }
+  return 'bg-navy text-white';
 }
 
 function numberOrNull(value: string): number | null {

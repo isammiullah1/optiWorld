@@ -22,6 +22,7 @@ import { RecordTrail } from '@/components/RecordTrail';
 
 import {
   cancelRetailerOrder,
+  confirmRetailerOrder,
   loadRetailerOrder,
   requestRetailerOrderCancellation,
 } from './catalog-api';
@@ -51,7 +52,7 @@ export function RetailerOrderDetailView({ orderId }: { orderId: string }): React
   const [notice, setNotice] = useState<string | null>(null);
   const [amendment, setAmendment] = useState<ChatLine | null>(null);
   const [editing, setEditing] = useState(false);
-  const [ask, setAsk] = useState<'cancel' | 'request' | null>(null);
+  const [ask, setAsk] = useState<'cancel' | 'request' | 'confirm' | null>(null);
   const [busy, setBusy] = useState(false);
 
   function applyOrder(next: RetailerOrderDetail): void {
@@ -187,6 +188,15 @@ export function RetailerOrderDetailView({ orderId }: { orderId: string }): React
               >
                 {orderStatusLabel(order.status)}
               </span>
+              {pending && order.openedByWholesaler && !showEditor ? (
+                <button
+                  type="button"
+                  onClick={() => setAsk('confirm')}
+                  className="min-h-11 rounded-lg bg-teal px-3 text-sm font-medium text-white"
+                >
+                  Confirm order
+                </button>
+              ) : null}
               {pending && !showEditor ? (
                 <button
                   type="button"
@@ -223,6 +233,11 @@ export function RetailerOrderDetailView({ orderId }: { orderId: string }): React
           <p className="mt-3 rounded-lg border border-line bg-amber-soft px-3 py-2 text-sm text-ink">
             This order is confirmed. A change or a cancellation waits for the wholesaler. They can
             accept it or keep the current order.
+          </p>
+        ) : null}
+        {pending && order?.openedByWholesaler ? (
+          <p className="mt-3 rounded-lg border border-teal bg-teal-soft px-3 py-2 text-sm text-ink">
+            {order.wholesaler.name} opened this order. Confirm it to lock the quantities and price.
           </p>
         ) : null}
         {notice ? <p className="mt-3 text-sm text-ink2">{notice}</p> : null}
@@ -588,12 +603,18 @@ export function RetailerOrderDetailView({ orderId }: { orderId: string }): React
                 className="grid w-full max-w-md gap-3 rounded-t-xl border border-line bg-white p-4 sm:rounded-xl"
               >
                 <h2 className="text-lg font-semibold text-ink">
-                  {ask === 'cancel' ? 'Cancel this order?' : 'Ask the wholesaler to cancel?'}
+                  {ask === 'confirm'
+                    ? 'Confirm this order?'
+                    : ask === 'cancel'
+                      ? 'Cancel this order?'
+                      : 'Ask the wholesaler to cancel?'}
                 </h2>
                 <p className="text-sm text-ink2">
-                  {ask === 'cancel'
-                    ? 'This pending order is cancelled now. The wholesaler sees that in the order chat.'
-                    : 'A confirmed order stays in place until the wholesaler accepts. They are asked on WhatsApp to call you and discuss it. They can also keep the current order.'}
+                  {ask === 'confirm'
+                    ? 'Confirming locks the order. Neither shop can change the lines after that.'
+                    : ask === 'cancel'
+                      ? 'This pending order is cancelled now. The wholesaler sees that in the order chat.'
+                      : 'A confirmed order stays in place until the wholesaler accepts. They are asked on WhatsApp to call you and discuss it. They can also keep the current order.'}
                 </p>
                 <div className="flex gap-2">
                   <button
@@ -610,9 +631,11 @@ export function RetailerOrderDetailView({ orderId }: { orderId: string }): React
                     onClick={() => {
                       setBusy(true);
                       const action =
-                        ask === 'cancel'
-                          ? cancelRetailerOrder(token, order.id)
-                          : requestRetailerOrderCancellation(token, order.id);
+                        ask === 'confirm'
+                          ? confirmRetailerOrder(token, order.id).then(() => 'Order confirmed.')
+                          : ask === 'cancel'
+                            ? cancelRetailerOrder(token, order.id)
+                            : requestRetailerOrderCancellation(token, order.id);
                       void action
                         .then((message) => {
                           setAsk(null);
@@ -630,9 +653,17 @@ export function RetailerOrderDetailView({ orderId }: { orderId: string }): React
                         })
                         .finally(() => setBusy(false));
                     }}
-                    className="min-h-11 flex-1 rounded-lg bg-danger text-sm font-medium text-white disabled:opacity-60"
+                    className={`min-h-11 flex-1 rounded-lg text-sm font-medium text-white disabled:opacity-60 ${
+                      ask === 'confirm' ? 'bg-teal' : 'bg-danger'
+                    }`}
                   >
-                    {busy ? 'Saving…' : ask === 'cancel' ? 'Cancel order' : 'Request cancellation'}
+                    {busy
+                      ? 'Saving…'
+                      : ask === 'confirm'
+                        ? 'Confirm order'
+                        : ask === 'cancel'
+                          ? 'Cancel order'
+                          : 'Request cancellation'}
                   </button>
                 </div>
               </div>

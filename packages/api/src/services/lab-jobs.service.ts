@@ -408,7 +408,13 @@ export async function createDirectLabJob(
     where: { id: retailerOrgId },
     select: { name: true },
   });
-  const prescription = { right: input.right, left: input.left, add: input.add, pd: input.pd };
+  const prescription = {
+    title: input.title?.trim() ?? '',
+    right: input.right,
+    left: input.left,
+    add: input.add,
+    pd: input.pd,
+  };
   const frame = {
     name: input.frameName?.trim() ?? '',
     type: input.frameType?.trim() ?? '',
@@ -1054,12 +1060,19 @@ export async function outsourceRetailerLabJob(
 }
 
 export function prescriptionJson(input: LabPrescription): {
+  title: string;
   right: LabPrescription['right'];
   left: LabPrescription['left'];
   add: string;
   pd: string;
 } {
-  return { right: input.right, left: input.left, add: input.add, pd: input.pd };
+  return {
+    title: input.title?.trim() ?? '',
+    right: input.right,
+    left: input.left,
+    add: input.add,
+    pd: input.pd,
+  };
 }
 
 export function frameJson(
@@ -1172,7 +1185,12 @@ function readFrame(value: unknown): LabJobDetail['frame'] {
 }
 
 function eye(record: Record<string, unknown>): LabJobDetail['prescription']['right'] {
-  return { sphere: text(record.sphere), cylinder: text(record.cylinder), axis: text(record.axis) };
+  const eye = {
+    sphere: text(record.sphere),
+    cylinder: text(record.cylinder),
+    axis: text(record.axis),
+  };
+  return typeof record.add === 'string' ? { ...eye, add: record.add } : eye;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

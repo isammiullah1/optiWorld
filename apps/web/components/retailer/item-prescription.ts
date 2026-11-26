@@ -1,5 +1,6 @@
 import {
   categoryRequiresPrescription,
+  resolvedEyeAdd,
   type ItemPrescription,
   type LinePrescriptionInput,
 } from '@optiworld/shared';
@@ -8,19 +9,32 @@ export const EMPTY_EYE = { sphere: '', cylinder: '', axis: '' };
 
 export function emptyItemPrescription(): ItemPrescription {
   return {
+    title: '',
     right: { ...EMPTY_EYE },
     left: { ...EMPTY_EYE },
     add: '',
-    pd: '',
+    pd: '62',
     notes: '',
   };
+}
+
+export function prescriptionChoiceLabel(title: string | undefined, detail: string): string {
+  const name = title?.trim() ?? '';
+  return name.length > 0 ? `(${name}) ${detail}` : detail;
 }
 
 export function prescriptionLabel(value: ItemPrescription | null): string | null {
   if (!value) {
     return null;
   }
-  return `R ${eyeText(value.right)} · L ${eyeText(value.left)}`;
+  const rightAdd = resolvedEyeAdd(value.right, value.add);
+  const leftAdd = resolvedEyeAdd(value.left, value.add);
+  const right = eyeText(value.right);
+  const left = eyeText(value.left);
+  if (rightAdd && rightAdd === leftAdd) {
+    return `R ${right} · L ${left} · Add ${rightAdd}`;
+  }
+  return `R ${withAdd(right, rightAdd)} · L ${withAdd(left, leftAdd)}`;
 }
 
 export function needsPrescription(
@@ -41,6 +55,8 @@ export function hasFilledPrescription(value: ItemPrescription | null): boolean {
     value.left.sphere,
     value.left.cylinder,
     value.add,
+    value.right.add ?? '',
+    value.left.add ?? '',
     value.pd,
   ].some((part) => part.trim().length > 0);
 }
@@ -60,4 +76,8 @@ export function linePrescription(
 
 function eyeText(eye: ItemPrescription['right']): string {
   return `${eye.sphere || '—'} / ${eye.cylinder || '—'} × ${eye.axis || '—'}`;
+}
+
+function withAdd(eye: string, add: string): string {
+  return add ? `${eye} Add ${add}` : eye;
 }

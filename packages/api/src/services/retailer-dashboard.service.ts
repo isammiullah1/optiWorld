@@ -11,6 +11,7 @@ import {
 } from '@optiworld/shared';
 
 import { AppError } from '../lib/errors.js';
+import { requiredShopOrgId } from '../lib/shop-org.js';
 import { assertLabFeature } from './lab-account.service.js';
 
 const ACTIVE_JOB_STATUSES = [
@@ -331,10 +332,7 @@ async function markAllReadForOrg(orgId: string): Promise<{ updated: number }> {
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (!auth.orgId || auth.orgType !== 'RETAILER') {
-    throw new AppError(403, 'FORBIDDEN', 'This area is not available for your organisation');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }
 
 function requiredOrgId(auth: AuthSessionUser): string {

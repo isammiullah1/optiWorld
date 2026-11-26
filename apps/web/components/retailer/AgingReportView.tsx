@@ -88,21 +88,24 @@ export function AgingReportView(): React.ReactElement {
           sending={sending}
           error={sendError}
           onClose={() => setDialogIds(null)}
-          onSend={async (customerIds) => {
+          onSend={async (customerIds, note) => {
             if (!token) {
               return;
             }
             setSending(true);
             setSendError(null);
             try {
-              const result = await sendPaymentReminders(token, customerIds);
+              const result = await sendPaymentReminders(token, customerIds, note);
               const sent = result.results.filter((item) => item.sent).length;
+              if (sent === 0) {
+                setSendError(result.results[0]?.message ?? 'No reminders were sent.');
+                return result;
+              }
               setNotice(
-                sent > 0
-                  ? `${sent} reminder${sent === 1 ? '' : 's'} sent.`
-                  : (result.results[0]?.message ?? 'No reminders were sent.'),
+                sent === 1 ? 'Reminder sent on WhatsApp.' : `${sent} reminders sent on WhatsApp.`,
               );
-              setDialogIds(null);
+              await reload();
+              return result;
             } catch (caught) {
               setSendError(
                 caught instanceof Error ? caught.message : 'The reminders could not be sent',

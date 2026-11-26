@@ -9,6 +9,7 @@ import {
   type DamagedEntry,
   type InventoryDetail,
 } from '@optiworld/shared';
+import { isShopOwnerRole } from '@/lib/shop-scope';
 import {
   ArchiveRestore,
   BadgeIndianRupee,
@@ -53,8 +54,8 @@ const TYPE_LABELS = {
 export function BatchDetail({ batchId }: { batchId: string }): React.ReactElement {
   const { data: session } = useSession();
   const token = session?.accessToken;
-  const showCost = session?.user.role === 'OWNER';
-  const showMovement = session?.user.role === 'OWNER';
+  const showCost = isShopOwnerRole(session?.user.role);
+  const showMovement = isShopOwnerRole(session?.user.role);
   const [detail, setDetail] = useState<InventoryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,9 +111,6 @@ export function BatchDetail({ batchId }: { batchId: string }): React.ReactElemen
     <section className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link href="/retailer/inventory" className="text-sm text-action">
-            Inventory
-          </Link>
           <h1 className="text-xl font-semibold text-ink">{batch.productName}</h1>
           <p className="text-sm text-ink2">
             {batch.priceCode}
@@ -755,7 +753,11 @@ function CostReceiptsDialog({
   receipts: readonly CostReceipt[];
   onClose: () => void;
 }): React.ReactElement {
-  const totalQty = receipts.reduce((sum, receipt) => sum + receipt.quantity, 0);
+  const totalQty = receipts.reduce((sum, receipt) => sum + signedReceiptQty(receipt), 0);
+  const incurred = receipts.reduce(
+    (sum, receipt) => sum + (receipt.lineCost ? moneyToCents(receipt.lineCost) : 0),
+    0,
+  );
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-center bg-ink/40 sm:items-center"
@@ -803,11 +805,11 @@ function CostReceiptsDialog({
                 <tr key={receipt.id} className="border-b border-line last:border-b-0">
                   <td className="px-2 py-3 text-sm text-ink">
                     {formatShortDate(receipt.occurredAt)}
-                    <span className="mt-1 block text-xs text-ink2">
-                      {receipt.kind === 'OPENING' ? 'Opening stock' : 'Received'}
-                    </span>
+                    <span className="mt-1 block text-xs text-ink2">{receiptLabel(receipt)}</span>
                   </td>
-                  <td className="px-2 py-3 text-sm text-ink">{receipt.quantity}</td>
+                  <td className="px-2 py-3 text-sm text-ink">
+                    {signedReceiptQty(receipt) < 0 ? `-${receipt.quantity}` : receipt.quantity}
+                  </td>
                   <td className="px-2 py-3 text-sm text-ink">
                     {receipt.unitCost ? formatRupee(receipt.unitCost) : '—'}
                   </td>
@@ -820,7 +822,14 @@ function CostReceiptsDialog({
           </table>
         )}
         <div className="grid gap-1 rounded-lg border border-navy bg-action-soft px-3 py-3">
-          {receipts.length > 0 ? <p className="text-sm text-ink2">{totalQty} acquired</p> : null}
+          {receipts.length > 0 ? (
+            <>
+              <p className="text-sm text-ink2">{totalQty} acquired</p>
+              <p className="text-sm font-semibold text-navy">
+                Cost incurred {formatRupee(centsToMoney(incurred))}
+              </p>
+            </>
+          ) : null}
           <p className="text-sm font-semibold text-navy">
             Average cost price {formatRupee(average)}
           </p>
@@ -1052,6 +1061,22 @@ function AdjustDialog({
       </form>
     </div>
   );
+}
+
+function signedReceiptQty(receipt: CostReceipt): number {
+  return receipt.kind === 'CORRECTION' && receipt.lineCost?.startsWith('-')
+    ? -receipt.quantity
+    : receipt.quantity;
+}
+
+function receiptLabel(receipt: CostReceipt): string {
+  if (receipt.kind === 'OPENING') {
+    return 'Opening stock';
+  }
+  if (receipt.kind === 'CORRECTION') {
+    return receipt.lineCost?.startsWith('-') ? 'Correction removed' : 'Correction added';
+  }
+  return 'Received';
 }
 
 function formatMovementDate(iso: string): string {

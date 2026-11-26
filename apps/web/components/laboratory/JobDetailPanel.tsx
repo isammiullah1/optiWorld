@@ -216,7 +216,9 @@ export function JobDetailPanel({
                   <td className="py-1 pr-2">{job.prescription.right.sphere || '—'}</td>
                   <td className="py-1 pr-2">{job.prescription.right.cylinder || '—'}</td>
                   <td className="py-1 pr-2">{job.prescription.right.axis || '—'}</td>
-                  <td className="py-1 pr-2">{job.prescription.add || '—'}</td>
+                  <td className="py-1 pr-2">
+                    {(job.prescription.right.add ?? job.prescription.add) || '—'}
+                  </td>
                   <td className="py-1">{job.prescription.pd || '—'}</td>
                 </tr>
                 <tr>
@@ -224,7 +226,9 @@ export function JobDetailPanel({
                   <td className="py-1 pr-2">{job.prescription.left.sphere || '—'}</td>
                   <td className="py-1 pr-2">{job.prescription.left.cylinder || '—'}</td>
                   <td className="py-1 pr-2">{job.prescription.left.axis || '—'}</td>
-                  <td className="py-1 pr-2">{job.prescription.add || '—'}</td>
+                  <td className="py-1 pr-2">
+                    {(job.prescription.left.add ?? job.prescription.add) || '—'}
+                  </td>
                   <td className="py-1">{job.prescription.pd || '—'}</td>
                 </tr>
               </tbody>

@@ -87,10 +87,12 @@ export function LocalReceipt({ localId }: { localId: string }): React.ReactEleme
                   left: item.prescription.left,
                   add: item.prescription.add,
                   pd: item.prescription.pd,
+                  title: item.prescription.title ?? '',
                   notes: item.prescription.notes,
                 }
               : null,
           })),
+          costing: null,
         });
       },
     );

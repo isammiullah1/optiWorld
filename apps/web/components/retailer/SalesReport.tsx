@@ -5,6 +5,7 @@ import { Banknote, Calculator, CreditCard, Receipt, type LucideIcon } from 'luci
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 
+import { isShopOwnerRole } from '@/lib/shop-scope';
 import { formatRupee, formatShortDate } from './dashboard-format';
 import { ReportRange } from './ReportRange';
 import { SalesCharts } from './SalesCharts';
@@ -45,6 +46,34 @@ export function SalesReport(): React.ReactElement {
         <h1 className="text-xl font-semibold text-ink">Sales</h1>
         <p className="text-sm text-ink2">Revenue, invoices, and payment mix for this shop.</p>
       </div>
+      {report ? (
+        <SalesInvoiceList
+          invoices={report.invoices}
+          from={from}
+          to={to}
+          token={token}
+          canEdit={isShopOwnerRole(session?.user.role)}
+          onRange={(nextFrom, nextTo) => {
+            setFrom(nextFrom);
+            setTo(nextTo);
+          }}
+          onChanged={() => {
+            if (!token) {
+              return;
+            }
+            void loadSalesReport(token, from, to)
+              .then((next) => {
+                setReport(next);
+                setError(null);
+              })
+              .catch((caught: unknown) => {
+                setError(
+                  caught instanceof Error ? caught.message : 'The sales report could not be loaded',
+                );
+              });
+          }}
+        />
+      ) : null}
       <ReportRange
         from={from}
         to={to}
@@ -142,34 +171,6 @@ export function SalesReport(): React.ReactElement {
             <RevenueDetail report={report} onClose={() => setRevenueOpen(false)} />
           ) : null}
           <SalesSections report={report} />
-          <SalesInvoiceList
-            invoices={report.invoices}
-            from={from}
-            to={to}
-            token={token}
-            canEdit={session?.user.role === 'OWNER'}
-            onRange={(nextFrom, nextTo) => {
-              setFrom(nextFrom);
-              setTo(nextTo);
-            }}
-            onChanged={() => {
-              if (!token) {
-                return;
-              }
-              void loadSalesReport(token, from, to)
-                .then((next) => {
-                  setReport(next);
-                  setError(null);
-                })
-                .catch((caught: unknown) => {
-                  setError(
-                    caught instanceof Error
-                      ? caught.message
-                      : 'The sales report could not be loaded',
-                  );
-                });
-            }}
-          />
           <SalesCharts report={report} />
         </>
       ) : null}

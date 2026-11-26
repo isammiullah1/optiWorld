@@ -19,6 +19,7 @@ export const EyePowerSchema = z.object({
   sphere: z.string().max(20).default(''),
   cylinder: z.string().max(20).default(''),
   axis: z.string().max(20).default(''),
+  add: z.string().max(20).optional(),
 });
 
 export const LabPrescriptionObject = z.object({
@@ -26,6 +27,7 @@ export const LabPrescriptionObject = z.object({
   referenceNumber: z.string().regex(/^(?:OW-\d{4}-\d{3}|OW-LAB-\d{4}-[A-Z0-9]{5})$/),
   right: EyePowerSchema,
   left: EyePowerSchema,
+  title: z.string().trim().max(40).optional(),
   add: z.string().max(20).default(''),
   pd: z.string().max(20).default(''),
   notes: z.string().max(500).default(''),
@@ -152,9 +154,11 @@ const receiptEye = z.object({
   sphere: z.string(),
   cylinder: z.string(),
   axis: z.string(),
+  add: z.string().optional(),
 });
 
 export const ReceiptPrescriptionSchema = z.object({
+  title: z.string().trim().max(40).optional(),
   right: receiptEye,
   left: receiptEye,
   add: z.string(),
@@ -166,6 +170,7 @@ export type ReceiptPrescription = z.infer<typeof ReceiptPrescriptionSchema>;
 
 export const PosReceiptItemSchema = z.object({
   id: uuid,
+  inventoryBatchId: uuid.nullable().optional(),
   productName: z.string(),
   priceCode: z.string(),
   quantity: z.number().int().positive(),
@@ -223,6 +228,24 @@ export const PosReceiptSchema = z.object({
   businessAddress: z.string().nullable(),
   items: z.array(PosReceiptItemSchema),
   activity: z.array(RecordActivitySchema).optional(),
+  costing: z
+    .object({
+      inventoryCost: money,
+      labCost: money,
+      profit: money,
+      inventoryCostMissing: z.boolean(),
+      lines: z
+        .array(
+          z.object({
+            productName: z.string(),
+            priceCode: z.string(),
+            quantity: z.number().int().positive(),
+            cost: money.nullable(),
+          }),
+        )
+        .default([]),
+    })
+    .nullable(),
 });
 
 export type PosReceipt = z.infer<typeof PosReceiptSchema>;
@@ -282,6 +305,33 @@ export const FinalizeInvoiceLabSchema = z.object({
 });
 
 export type FinalizeInvoiceLabRequest = z.infer<typeof FinalizeInvoiceLabSchema>;
+
+export const EditInvoiceSaleSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        itemId: uuid,
+        quantity: z.number().int().positive().max(999),
+        unitPrice: money,
+      }),
+    )
+    .max(80),
+  additions: z
+    .array(
+      z.object({
+        inventoryBatchId: uuid,
+        quantity: z.number().int().positive().max(99),
+        unitPrice: money,
+      }),
+    )
+    .max(20)
+    .default([]),
+  discount: money,
+  paymentType: z.enum(['CASH', 'CREDIT']),
+  amountReceived: money.optional(),
+});
+
+export type EditInvoiceSaleRequest = z.infer<typeof EditInvoiceSaleSchema>;
 
 export const InvoiceNoticeSchema = z.object({
   id: uuid,

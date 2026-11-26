@@ -24,6 +24,7 @@ import {
 
 import { billLogoPath } from '../lib/bill-logo-store.js';
 import { AppError } from '../lib/errors.js';
+import { isShopOwner, requiredShopOrgId } from '../lib/shop-org.js';
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -123,6 +124,9 @@ export async function listInventory(
   const categories = [...new Set(liveRows.map((row) => row.category))].sort((a, b) =>
     a.localeCompare(b),
   );
+  const stockOnHand = query.category
+    ? liveRows.reduce((sum, row) => (row.category === query.category ? sum + row.stockQty : sum), 0)
+    : null;
   const sorted = [...filtered].sort((left, right) => {
     if (query.mostProfitable && profits) {
       return (
@@ -149,9 +153,9 @@ export async function listInventory(
     rows: pageRows.map((row) => {
       const note = notes.get(row.id);
       return {
-        ...toRecord(row, auth.role === 'OWNER'),
+        ...toRecord(row, isShopOwner(auth)),
         unitsSold: unitsSoldOf(row.stockMovements),
-        profit: auth.role === 'OWNER' && profits ? centsToMoney(profits.get(row.id) ?? 0) : null,
+        profit: isShopOwner(auth) && profits ? centsToMoney(profits.get(row.id) ?? 0) : null,
         archivedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
         archiveReason: note?.reason ?? null,
         archivedBy: note?.by ?? null,
@@ -159,6 +163,7 @@ export async function listInventory(
     }),
     categories,
     categoryRules: customCategoryRules(liveRows),
+    stockOnHand,
     meta: { total: filtered.length, page: query.page, limit: query.limit },
   };
 }
@@ -337,7 +342,7 @@ export async function restoreInventoryBatch(
       });
       return batch;
     });
-    return toRecord(restored, auth.role === 'OWNER');
+    return toRecord(restored, isShopOwner(auth));
   } catch (error) {
     if (isUniqueError(error)) {
       throw new AppError(409, 'VALIDATION_ERROR', 'A live product already uses this product code');
@@ -361,7 +366,7 @@ export async function createInventoryBatch(
   const code = resolvedCode(input);
   const category = resolvedCategory(input);
   const threshold = input.lowStockThreshold ?? org.defaultLowStockThreshold;
-  const cost = auth.role === 'OWNER' && input.costPrice ? input.costPrice : '0.00';
+  const cost = isShopOwner(auth) && input.costPrice ? input.costPrice : '0.00';
   try {
     const created = await prisma.$transaction(async (tx) => {
       const batch = await tx.inventoryBatch.create({
@@ -400,7 +405,7 @@ export async function createInventoryBatch(
       await ensureLowStockAlert(tx, orgId, batch);
       return batch;
     });
-    return toRecord(created, auth.role === 'OWNER');
+    return toRecord(created, isShopOwner(auth));
   } catch (error) {
     if (isUniqueError(error)) {
       throw new AppError(409, 'VALIDATION_ERROR', 'A batch with this product code already exists');
@@ -456,7 +461,7 @@ export async function updateInventoryBatch(
     await ensureLowStockAlert(tx, orgId, batch);
     return batch;
   });
-  return toRecord(updated, auth.role === 'OWNER');
+  return toRecord(updated, isShopOwner(auth));
 }
 
 export async function getInventoryDetail(
@@ -471,7 +476,10 @@ export async function getInventoryDetail(
   if (!batch) {
     throw new AppError(404, 'NOT_FOUND', 'This batch was not found');
   }
-  const owner = auth.role === 'OWNER';
+  const owner = isShopOwner(auth);
+  if (owner) {
+    await stampUnpricedReceipts(orgId, batch.id, batch.costPrice.toFixed(2));
+  }
   const [movements, wholesalers, figures, note] = await Promise.all([
     owner ? loadMovements(orgId, batch) : Promise.resolve([]),
     loadWholesalers(orgId),
@@ -481,9 +489,10 @@ export async function getInventoryDetail(
       : Promise.resolve(new Map<string, ArchiveNote>()),
   ]);
   const archive = note.get(batch.id);
+  const costPrice = owner ? await rememberAverageCost(batch.id, batch.costPrice, figures) : null;
   return {
     batch: {
-      ...toRecord(batch, owner),
+      ...toRecord(batch, owner, costPrice),
       archivedAt: batch.deletedAt ? batch.deletedAt.toISOString() : null,
       archiveReason: archive?.reason ?? null,
       archivedBy: archive?.by ?? null,
@@ -498,7 +507,7 @@ export async function listStockMovements(
   auth: AuthSessionUser,
   batchId: string,
 ): Promise<StockMovementRow[]> {
-  if (auth.role !== 'OWNER') {
+  if (!isShopOwner(auth)) {
     throw new AppError(403, 'FORBIDDEN', 'Stock movement is visible to the owner');
   }
   const detail = await getInventoryDetail(auth, batchId);
@@ -511,7 +520,7 @@ export async function adjustInventoryStock(
   input: AdjustStockRequest,
 ): Promise<InventoryDetail> {
   const orgId = requiredRetailerOrgId(auth);
-  if (input.reason === 'RECEIVED' && auth.role === 'OWNER' && !input.costPrice) {
+  if (input.reason === 'RECEIVED' && isShopOwner(auth) && !input.costPrice) {
     throw new AppError(422, 'VALIDATION_ERROR', 'Enter the cost price for the stock received');
   }
   const direction = adjustmentDirection(input);
@@ -561,11 +570,13 @@ export async function adjustInventoryStock(
         quantityChange: change,
         balanceAfter: next,
         note:
-          receivedCost && blended
-            ? `Received ${input.quantity} at ${receivedCost}. Average cost ${blended}.`
-            : input.reason === 'DAMAGED'
-              ? (input.note ?? null)
-              : null,
+          input.reason === 'CORRECTION'
+            ? `${direction === 'ADD' ? 'Added' : 'Removed'} ${input.quantity}`
+            : receivedCost && blended
+              ? `Received ${input.quantity} at ${receivedCost}. Average cost ${blended}.`
+              : input.reason === 'DAMAGED'
+                ? (input.note ?? null)
+                : null,
         createdByUserId: auth.userId,
       },
     });
@@ -688,6 +699,16 @@ function toSettings(org: {
 function emptyToNull(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+export function returnMovementNote(
+  quantity: number,
+  productName: string,
+  invoiceNumber: number,
+  userName: string,
+): string {
+  const item = quantity === 1 ? productName : `${quantity} × ${productName}`;
+  return `Returned ${item} from invoice #${invoiceNumber} by ${userName}`;
 }
 
 export async function recordSaleMovements(
@@ -1011,7 +1032,9 @@ async function loadBatchFigures(
   let damagedQty = 0;
   let lostQty = 0;
   let acquiredCost = 0;
+  let sawAcquisition = false;
   let lastUnit: number | null = null;
+  const layers: Array<{ qty: number; unit: number }> = [];
   const costReceipts: CostReceipt[] = [];
   const damagedDrafts: Array<{
     id: string;
@@ -1032,6 +1055,8 @@ async function loadBatchFigures(
       }
       acquiredQty += movement.quantityChange;
       acquiredCost += movement.quantityChange * unit;
+      layers.push({ qty: movement.quantityChange, unit });
+      sawAcquisition = true;
       if (includeCost) {
         costReceipts.push({
           id: movement.id,
@@ -1059,6 +1084,28 @@ async function loadBatchFigures(
     if (movement.type === 'LOST') {
       lostQty += Math.abs(movement.quantityChange);
     }
+    if (revisesAcquiredStock(movement.type, movement.note, movement.quantityChange)) {
+      const taken = applyCorrectionLayer(
+        layers,
+        movement.quantityChange,
+        movement.note,
+        fallbackUnit,
+      );
+      const totals = layerTotals(layers);
+      acquiredQty = totals.qty;
+      acquiredCost = totals.cost;
+      sawAcquisition = true;
+      if (includeCost && taken.quantity > 0) {
+        costReceipts.push({
+          id: movement.id,
+          occurredAt: movement.createdAt.toISOString(),
+          kind: 'CORRECTION',
+          quantity: taken.quantity,
+          unitCost: centsToMoney(Math.round(taken.cost / taken.quantity)),
+          lineCost: centsToMoney(movement.quantityChange < 0 ? -taken.cost : taken.cost),
+        });
+      }
+    }
   }
   let saleCents = 0;
   let soldQty = 0;
@@ -1075,7 +1122,7 @@ async function loadBatchFigures(
       lineCost: centsToMoney(onlyReceipt.quantity * fallbackUnit),
     };
   }
-  if (acquiredQty === 0) {
+  if (!sawAcquisition) {
     acquiredQty = batch.stockQty + damagedQty + lostQty + soldQty;
     acquiredCost = acquiredQty * fallbackUnit;
     if (includeCost && acquiredQty > 0) {
@@ -1117,6 +1164,56 @@ async function loadBatchFigures(
     costReceipts: includeCost ? costReceipts : [],
     damagedEntries,
   };
+}
+
+function layerTotals(layers: readonly { qty: number; unit: number }[]): {
+  qty: number;
+  cost: number;
+} {
+  let qty = 0;
+  let cost = 0;
+  for (const layer of layers) {
+    qty += layer.qty;
+    cost += layer.qty * layer.unit;
+  }
+  return { qty, cost };
+}
+
+function applyCorrectionLayer(
+  layers: Array<{ qty: number; unit: number }>,
+  quantityChange: number,
+  note: string | null,
+  fallbackUnit: number,
+): { quantity: number; cost: number } {
+  if (quantityChange > 0) {
+    const noted = unitCostFromNote(note);
+    const totals = layerTotals(layers);
+    const unit = noted ?? (totals.qty > 0 ? Math.round(totals.cost / totals.qty) : fallbackUnit);
+    layers.push({ qty: quantityChange, unit });
+    return { quantity: quantityChange, cost: quantityChange * unit };
+  }
+  let remaining = Math.abs(quantityChange);
+  let cost = 0;
+  let quantity = 0;
+  while (remaining > 0 && layers.length > 0) {
+    const top = layers[layers.length - 1];
+    if (!top) {
+      break;
+    }
+    const take = Math.min(top.qty, remaining);
+    cost += take * top.unit;
+    quantity += take;
+    top.qty -= take;
+    remaining -= take;
+    if (top.qty === 0) {
+      layers.pop();
+    }
+  }
+  return { quantity, cost };
+}
+
+function revisesAcquiredStock(type: string, note: string | null, quantityChange: number): boolean {
+  return type === 'CORRECTION' && quantityChange !== 0 && !note?.startsWith('Invoice #');
 }
 
 function unitCostFromNote(note: string | null): number | null {
@@ -1165,7 +1262,56 @@ function adjustmentDirection(input: AdjustStockRequest): 'ADD' | 'REMOVE' {
   return input.direction ?? 'ADD';
 }
 
-function toRecord(row: BatchRow, includeCost: boolean): InventoryBatchRecord {
+async function stampUnpricedReceipts(
+  orgId: string,
+  batchId: string,
+  unitCost: string,
+): Promise<void> {
+  const rows = await prisma.stockMovement.findMany({
+    where: {
+      orgId,
+      batchId,
+      type: { in: ['OPENING', 'RECEIVED'] },
+      quantityChange: { gt: 0 },
+    },
+    select: { id: true, note: true },
+  });
+  for (const row of rows) {
+    if (unitCostFromNote(row.note) !== null) {
+      continue;
+    }
+    await prisma.stockMovement.update({
+      where: { id: row.id },
+      data: { note: row.note ? `${row.note}. Unit cost ${unitCost}` : `Unit cost ${unitCost}` },
+    });
+  }
+}
+
+async function rememberAverageCost(
+  batchId: string,
+  stored: { toFixed: (digits: number) => string },
+  figures: { acquiredQty: number; costTotal: string | null },
+): Promise<string> {
+  const current = stored.toFixed(2);
+  if (!figures.costTotal || figures.acquiredQty <= 0) {
+    return current;
+  }
+  const average = centsToMoney(Math.round(moneyToCents(figures.costTotal) / figures.acquiredQty));
+  if (average === current) {
+    return current;
+  }
+  await prisma.inventoryBatch.update({
+    where: { id: batchId },
+    data: { costPrice: average },
+  });
+  return average;
+}
+
+function toRecord(
+  row: BatchRow,
+  includeCost: boolean,
+  costPrice?: string | null,
+): InventoryBatchRecord {
   return {
     id: row.id,
     priceCode: row.priceCode,
@@ -1174,7 +1320,7 @@ function toRecord(row: BatchRow, includeCost: boolean): InventoryBatchRecord {
     brand: row.brand,
     category: row.category,
     salePrice: row.salePrice.toFixed(2),
-    costPrice: includeCost ? row.costPrice.toFixed(2) : null,
+    costPrice: includeCost ? (costPrice ?? row.costPrice.toFixed(2)) : null,
     stockQty: row.stockQty,
     lowStockThreshold: row.lowStockThreshold,
     lowStock: row.stockQty <= row.lowStockThreshold,
@@ -1229,10 +1375,7 @@ function reasonFromMetadata(metadata: unknown): string | null {
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (!auth.orgId || auth.orgType !== 'RETAILER') {
-    throw new AppError(403, 'FORBIDDEN', 'This action is only available to a retailer');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }
 
 function isUniqueError(error: unknown): boolean {

@@ -14,6 +14,7 @@ import { formatRupee, formatShortDate } from '@/components/retailer/dashboard-fo
 import { OrderChat } from './OrderChat';
 import { OrderStatusDialog } from './OrderStatusDialog';
 import { loadWholesalerOrder, updateWholesalerOrderStatus } from './wholesaler-api';
+import { BLUE_CARD, headCellClass, headRowClass, TEAL_CARD } from './wholesaler-surface';
 
 export function WholesalerOrderDetail({ orderId }: { orderId: string }): React.ReactElement {
   const { data: session, status } = useSession();
@@ -91,11 +92,14 @@ export function WholesalerOrderDetail({ orderId }: { orderId: string }): React.R
           initialStatus={order.status}
           initialTotal={order.totalValue}
           initialItems={order.items}
+          awaitingRetailerConfirm={
+            order.openedByWholesaler && order.status === 'PENDING' && !order.lockedAt
+          }
           onOrderChanged={refresh}
         />
       </div>
       <aside className="space-y-3 lg:col-span-2">
-        <section className="rounded-xl border border-line bg-white p-4">
+        <section className={`rounded-xl border p-4 ${BLUE_CARD}`}>
           <h2 className="text-md font-semibold text-ink">{order.retailer.name}</h2>
           <p className="mt-1 text-sm text-ink2">{order.retailer.city ?? 'City not set'}</p>
           <p className="text-sm text-ink2">{order.retailer.phone ?? 'No phone'}</p>
@@ -106,20 +110,22 @@ export function WholesalerOrderDetail({ orderId }: { orderId: string }): React.R
               : 'approval'}
           </p>
         </section>
-        <section className="rounded-xl border border-line bg-white p-4">
+        <section className={`rounded-xl border p-4 ${TEAL_CARD}`}>
           <h2 className="text-md font-semibold text-ink">Order #{order.reference}</h2>
+          {order.openedByWholesaler && order.status === 'PENDING' ? (
+            <p className="mt-2 rounded-lg border border-amber bg-amber-soft px-3 py-2 text-sm text-ink">
+              You opened this order. It stays pending until the retailer confirms it.
+            </p>
+          ) : null}
           <div className="mt-2">
             <RecordTrail activity={order.activity} />
           </div>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full border-collapse text-left">
               <thead>
-                <tr>
+                <tr className={headRowClass}>
                   {['Product', 'Qty', 'Agreed price', 'Line total'].map((heading) => (
-                    <th
-                      key={heading}
-                      className="py-1 text-xs font-medium uppercase tracking-wide text-ink3"
-                    >
+                    <th key={heading} className={headCellClass}>
                       {heading}
                     </th>
                   ))}

@@ -257,15 +257,22 @@ export function AlertsDashboard({
           sending={sending}
           error={sendError}
           onClose={() => setRemindIds(null)}
-          onSend={async (customerIds) => {
+          onSend={async (customerIds, note) => {
             if (!token) {
               return;
             }
             setSending(true);
             setSendError(null);
             try {
-              await sendPaymentReminders(token, customerIds);
-              setRemindIds(null);
+              const result = await sendPaymentReminders(token, customerIds, note);
+              const sent = result.results.filter((item) => item.sent).length;
+              if (sent === 0) {
+                setSendError(result.results[0]?.message ?? 'No reminders were sent.');
+                return result;
+              }
+              const report = await loadAgingReport(token);
+              setDues(report.rows);
+              return result;
             } catch (caught) {
               setSendError(
                 caught instanceof Error ? caught.message : 'The reminder could not be sent',

@@ -126,6 +126,7 @@ export function NewLabJobDialog({
       patientName: patientName.trim(),
       patientPhone: trimmedPhone,
       labOrgId,
+      title: prescription.title?.trim() ?? '',
       right: prescription.right,
       left: prescription.left,
       add: prescription.add,

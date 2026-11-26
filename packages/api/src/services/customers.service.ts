@@ -20,6 +20,7 @@ import {
 } from '@optiworld/shared';
 
 import { AppError } from '../lib/errors.js';
+import { requiredShopOrgId } from '../lib/shop-org.js';
 
 type InvoiceRow = {
   id: string;
@@ -711,6 +712,9 @@ function ledgerEntries(
     handledBy: string | null;
   }[] = [];
   for (const invoice of invoices) {
+    if (invoice.cancelledAt) {
+      continue;
+    }
     events.push({
       id: `invoice-${invoice.id}`,
       at: invoice.issuedAt,
@@ -909,6 +913,7 @@ export async function createCustomerPrescription(
     data: {
       orgId,
       customerId,
+      title: cleanTitle(input.title),
       right: input.right,
       left: input.left,
       add: input.add,
@@ -937,6 +942,7 @@ export async function updateCustomerPrescription(
   const updated = await prisma.customerPrescription.update({
     where: { id: existing.id },
     data: {
+      title: cleanTitle(input.title),
       right: input.right,
       left: input.left,
       add: input.add,
@@ -976,6 +982,7 @@ export async function persistLinePrescription(
         data: {
           orgId,
           customerId,
+          title: cleanTitle(input.title),
           right: input.right,
           left: input.left,
           add: input.add,
@@ -987,6 +994,7 @@ export async function persistLinePrescription(
   return withLab(
     {
       ...readingSummaryPayload({
+        title: cleanTitle(input.title),
         right: input.right,
         left: input.left,
         add: input.add,
@@ -1009,6 +1017,7 @@ function withLab<T extends object>(
 function savedChoice(
   row: {
     id: string;
+    title?: string | null;
     right: unknown;
     left: unknown;
     add: string;
@@ -1019,6 +1028,7 @@ function savedChoice(
   source: SavedPrescription['source'],
 ): SavedPrescription {
   const reading = {
+    title: cleanTitle(row.title),
     right: eyeReading(row.right),
     left: eyeReading(row.left),
     add: row.add,
@@ -1042,6 +1052,7 @@ function readingFromUnknown(
   id: string;
   right: unknown;
   left: unknown;
+  title: string;
   add: string;
   pd: string;
   notes: string | null;
@@ -1052,6 +1063,7 @@ function readingFromUnknown(
   const left = asRecord(record.left ?? record.leftEye);
   return {
     id,
+    title: cleanTitle(textValue(record.title)),
     right,
     left,
     add: textValue(record.add),
@@ -1062,6 +1074,7 @@ function readingFromUnknown(
 }
 
 function readingSummaryPayload(row: {
+  title?: string | null;
   right: unknown;
   left: unknown;
   add: string;
@@ -1069,6 +1082,7 @@ function readingSummaryPayload(row: {
   notes: string | null;
 }): ItemPrescription & { summary: string } {
   const reading = {
+    title: cleanTitle(row.title),
     right: eyeReading(row.right),
     left: eyeReading(row.left),
     add: row.add,
@@ -1076,6 +1090,10 @@ function readingSummaryPayload(row: {
     notes: row.notes ?? '',
   };
   return { ...reading, summary: readingSummary(reading) };
+}
+
+function cleanTitle(value: string | null | undefined): string {
+  return (value ?? '').trim().slice(0, 40);
 }
 
 function readingSummary(value: ItemPrescription): string {
@@ -1091,11 +1109,12 @@ function eyeText(eye: ItemPrescription['right']): string {
 
 function eyeReading(value: unknown): ItemPrescription['right'] {
   const record = asRecord(value);
-  return {
+  const eye = {
     sphere: textValue(record.sphere),
     cylinder: textValue(record.cylinder),
     axis: textValue(record.axis),
   };
+  return typeof record.add === 'string' ? { ...eye, add: record.add } : eye;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -1182,8 +1201,5 @@ function money(value: { toFixed: (digits: number) => string }): string {
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (auth.orgType !== 'RETAILER' || !auth.orgId) {
-    throw new AppError(403, 'FORBIDDEN', 'This action is available to a retailer');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }

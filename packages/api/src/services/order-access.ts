@@ -13,6 +13,7 @@ import { AppError } from '../lib/errors.js';
 export type PartyOrder = {
   id: string;
   status: 'PENDING' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED';
+  settlement: 'CASH' | 'CREDIT' | null;
   lockedAt: Date | null;
   totalValue: { toFixed: (digits: number) => string } | null;
   retailerOrgId: string;

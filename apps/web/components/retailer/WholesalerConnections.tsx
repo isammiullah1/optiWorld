@@ -5,7 +5,15 @@ import type {
   WholesalerConnection,
   WholesalerSearchHit,
 } from '@optiworld/shared';
-import { ChevronDown, Eye, MapPin, Phone, UserRound, type LucideIcon } from 'lucide-react';
+import {
+  ChevronDown,
+  ClipboardList,
+  Eye,
+  MapPin,
+  Phone,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
@@ -328,6 +336,13 @@ export function WholesalerConnections(): React.ReactElement {
                   >
                     <Eye size={16} aria-hidden="true" />
                     Open catalog
+                  </Link>
+                  <Link
+                    href={`/retailer/orders?wholesaler=${row.wholesalerOrgId}`}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-semibold text-ink"
+                  >
+                    <ClipboardList size={16} aria-hidden="true" />
+                    Orders
                   </Link>
                   <DisconnectButton
                     onClick={() => {

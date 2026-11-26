@@ -11,6 +11,7 @@ import {
 } from '@optiworld/shared';
 
 import { AppError } from '../lib/errors.js';
+import { isShopOwner, requiredShopOrgId } from '../lib/shop-org.js';
 import { styleSheet } from '../lib/sheet-table.js';
 import { pdfWhen, renderTablePdf } from '../lib/text-pdf.js';
 import { getCustomerReport } from './customer-report.js';
@@ -34,6 +35,10 @@ import {
 export { getCustomerReport };
 
 const DAY_MS = 86_400_000;
+// A missing review note is a normal bill. `not` alone drops those rows in SQL.
+const excludeOpeningCredit = {
+  OR: [{ reviewReason: null }, { reviewReason: { not: 'Opening credit' } }],
+} as const;
 const MAX_DAYS = 366;
 const MONTH_LABELS = [
   'Jan',
@@ -63,7 +68,7 @@ export async function getSalesReport(
     where: {
       orgId,
       issuedAt: { gte: range.start, lt: range.end },
-      NOT: { reviewReason: 'Opening credit' },
+      ...excludeOpeningCredit,
     },
     select: {
       id: true,
@@ -107,7 +112,7 @@ export async function getSalesReport(
   let costIncurred = 0;
   let cash = 0;
   let credit = 0;
-  const owner = auth.role === 'OWNER';
+  const owner = isShopOwner(auth);
   const byDay = new Map<string, number>();
   const products = new Map<string, { quantity: number; total: number }>();
   const sectionBills: SaleSectionInput[] = [];
@@ -266,7 +271,7 @@ export async function getInventoryReport(
   to: string,
   quietDays = 60,
 ): Promise<InventoryReport> {
-  if (auth.role !== 'OWNER') {
+  if (!isShopOwner(auth)) {
     throw new AppError(403, 'FORBIDDEN', 'Stock movement is visible to the owner');
   }
   const orgId = requiredRetailerOrgId(auth);
@@ -298,7 +303,7 @@ export async function getInventoryReport(
           orgId,
           cancelledAt: null,
           issuedAt: { gte: range.start, lt: range.end },
-          NOT: { reviewReason: 'Opening credit' },
+          ...excludeOpeningCredit,
         },
       },
       select: { inventoryBatchId: true, quantity: true, stockShortfall: true, unitPrice: true },
@@ -947,7 +952,7 @@ async function loadReturns(orgId: string, range: Range): Promise<ReturnSectionIn
     where: {
       orgId,
       cancelledAt: { gte: range.start, lt: range.end },
-      NOT: { reviewReason: 'Opening credit' },
+      ...excludeOpeningCredit,
     },
     select: {
       id: true,
@@ -1046,14 +1051,11 @@ function reasonFromMetadata(metadata: unknown): string | null {
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (!auth.orgId || auth.orgType !== 'RETAILER') {
-    throw new AppError(403, 'FORBIDDEN', 'This area is not available for your organisation');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }
 
 function requireOwner(auth: AuthSessionUser): void {
-  if (auth.role !== 'OWNER') {
+  if (!isShopOwner(auth)) {
     throw new AppError(403, 'FORBIDDEN', 'Outstanding credit is visible to the owner');
   }
 }

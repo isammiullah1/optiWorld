@@ -2,6 +2,7 @@
 
 import {
   paymentReminderMessage,
+  readPaymentReminder,
   type RetailerSessionProfile,
   type RetailerSettings,
 } from '@optiworld/shared';
@@ -10,6 +11,7 @@ import { useEffect, useState } from 'react';
 
 import { CustomerPhoneField } from '@/components/retailer/CustomerPhoneField';
 import { loadRetailerSettings, saveRetailerSettings } from './inventory-api';
+import { ReminderSlip } from './ReminderSlip';
 import { loadRetailerProfile, saveRetailerShopProfile } from './retailer-account-api';
 
 export function ReminderSettings(): React.ReactElement {
@@ -51,9 +53,11 @@ export function ReminderSettings(): React.ReactElement {
   const preview = paymentReminderMessage({
     customerName: 'Ayesha Khan',
     businessName: settings?.businessName ?? 'Your shop',
-    outstanding: '3,900.00',
+    outstanding: '3900.00',
     dueOn: '12 Oct 2026',
+    bills: [{ invoiceNumber: 18, total: '5400.00', paid: '1500.00', remaining: '3900.00' }],
   });
+  const slip = readPaymentReminder(preview);
 
   const locked = !sessionReady || !isOwner;
   const fieldClass =
@@ -189,11 +193,15 @@ export function ReminderSettings(): React.ReactElement {
             onDays={(value) => updateNumber(setSettings, 'reminderAfterDays', value)}
           />
         </div>
-        <div>
+        <div className="grid gap-1">
           <p className="text-sm font-medium text-ink">WhatsApp message</p>
-          <p className="mt-1 rounded-lg border border-teal bg-teal-soft p-3 text-sm text-ink2">
-            {preview}
-          </p>
+          {slip ? (
+            <ReminderSlip slip={slip} />
+          ) : (
+            <p className="whitespace-pre-line rounded-lg border border-line bg-canvas p-3 text-sm text-ink2">
+              {preview}
+            </p>
+          )}
         </div>
         {sessionReady && isOwner ? (
           <button

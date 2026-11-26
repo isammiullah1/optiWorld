@@ -6,6 +6,7 @@ import {
   CreatePosInvoiceSchema,
   SendInvoiceLabSchema,
   SendReceiptRequestSchema,
+  EditInvoiceSaleSchema,
   FinalizeInvoiceLabSchema,
   RemoveInvoiceSchema,
   UpdateInvoicePrescriptionSchema,
@@ -19,6 +20,7 @@ import {
   cancelRetailerInvoice,
   sendInvoiceToLab,
   unsendInvoiceLab,
+  editInvoiceSale,
   finalizeInvoiceLabEdit,
   updateInvoicePrescription,
 } from '../services/invoice-sale.service.js';
@@ -65,6 +67,15 @@ export function createPosBillingController() {
         requireSession(req),
         readParam(req.params.invoiceId),
         input.reason,
+      );
+      res.status(200).json({ success: true, data });
+    }),
+    editSale: asyncHandler(async (req: Request, res: Response) => {
+      const input = EditInvoiceSaleSchema.parse(req.body);
+      const data = await editInvoiceSale(
+        requireSession(req),
+        readParam(req.params.invoiceId),
+        input,
       );
       res.status(200).json({ success: true, data });
     }),

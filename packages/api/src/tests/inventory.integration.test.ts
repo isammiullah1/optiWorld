@@ -93,6 +93,20 @@ describe('retailer inventory', () => {
     assert.equal(damaged.status, 200);
     assert.equal(damaged.body.data.batch.stockQty, 3);
     assert.equal(damaged.body.data.batch.lowStock, true);
+    assert.equal(damaged.body.data.acquiredQty, 8);
+    assert.equal(damaged.body.data.costTotal, '7800.00');
+    assert.equal(damaged.body.data.batch.costPrice, '975.00');
+
+    const corrected = await request(app)
+      .post(`/api/v1/retailer/inventory/${batchId}/adjust`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reason: 'CORRECTION', quantity: 2, direction: 'REMOVE' });
+    assert.equal(corrected.status, 200);
+    assert.equal(corrected.body.data.batch.stockQty, 1);
+    assert.equal(corrected.body.data.acquiredQty, 6);
+    assert.equal(corrected.body.data.costTotal, '5400.00');
+    assert.equal(corrected.body.data.batch.costPrice, '900.00');
+    assert.equal(corrected.body.data.overallProfit, '-5400.00');
 
     const alert = await prisma.alert.findFirst({
       where: { orgId, type: 'LOW_STOCK', relatedEntityId: batchId },

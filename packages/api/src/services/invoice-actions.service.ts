@@ -2,6 +2,8 @@ import { prisma } from '@optiworld/db';
 import { centsToMoney, moneyToCents, type AuthSessionUser } from '@optiworld/shared';
 
 import { AppError } from '../lib/errors.js';
+import { requiredShopOrgId } from '../lib/shop-org.js';
+import { returnMovementNote } from './inventory.service.js';
 
 export async function clearInvoiceCredit(
   auth: AuthSessionUser,
@@ -88,7 +90,14 @@ export async function removeInvoice(
         id: true,
         invoiceNumber: true,
         cancelledAt: true,
-        items: { select: { inventoryBatchId: true, quantity: true, stockShortfall: true } },
+        items: {
+          select: {
+            inventoryBatchId: true,
+            productName: true,
+            quantity: true,
+            stockShortfall: true,
+          },
+        },
         labJobs: { select: { id: true, status: true } },
         labBills: { select: { status: true } },
       },
@@ -118,9 +127,28 @@ export async function removeInvoice(
       if (!item.inventoryBatchId || restore === 0) {
         continue;
       }
-      await tx.inventoryBatch.updateMany({
+      const batch = await tx.inventoryBatch.findFirst({
         where: { id: item.inventoryBatchId, orgId },
-        data: { stockQty: { increment: restore } },
+        select: { id: true, stockQty: true },
+      });
+      if (!batch) {
+        continue;
+      }
+      const balanceAfter = batch.stockQty + restore;
+      await tx.inventoryBatch.update({
+        where: { id: batch.id },
+        data: { stockQty: balanceAfter },
+      });
+      await tx.stockMovement.create({
+        data: {
+          orgId,
+          batchId: batch.id,
+          type: 'CORRECTION',
+          quantityChange: restore,
+          balanceAfter,
+          note: returnMovementNote(restore, item.productName, invoice.invoiceNumber, auth.name),
+          createdByUserId: auth.userId,
+        },
       });
     }
     await tx.invoice.update({
@@ -142,8 +170,5 @@ export async function removeInvoice(
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (auth.orgType !== 'RETAILER' || !auth.orgId) {
-    throw new AppError(403, 'FORBIDDEN', 'A retailer organisation is required');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }

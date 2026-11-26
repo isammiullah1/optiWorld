@@ -11,9 +11,12 @@ import type {
 } from '../schemas/sync.js';
 
 export function moneyToCents(value: string): number {
-  const [whole = '0', fraction = ''] = value.split('.');
+  const negative = value.startsWith('-');
+  const absolute = negative ? value.slice(1) : value;
+  const [whole = '0', fraction = ''] = absolute.split('.');
   const padded = `${fraction}00`.slice(0, 2);
-  return Number(whole) * 100 + Number(padded);
+  const cents = Number(whole) * 100 + Number(padded);
+  return negative ? -cents : cents;
 }
 
 export function centsToMoney(cents: number): string {

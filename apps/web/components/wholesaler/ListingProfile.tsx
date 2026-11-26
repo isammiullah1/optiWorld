@@ -96,7 +96,7 @@ export function ListingProfile(): React.ReactElement {
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
       {share ? (
-        <section className="rounded-xl border border-line bg-white p-4 lg:col-span-2">
+        <section className="rounded-xl border border-action-soft bg-white p-4 lg:col-span-2">
           <h2 className="text-md font-semibold text-ink">Share with a retailer</h2>
           <p className="mt-1 text-sm text-ink2">
             A retailer can request a connection only with this exact username or ID.
@@ -114,7 +114,7 @@ export function ListingProfile(): React.ReactElement {
         </section>
       ) : null}
       <form
-        className="grid gap-3 rounded-xl border border-line bg-white p-4"
+        className="grid gap-3 rounded-xl border border-action bg-[linear-gradient(165deg,color-mix(in_srgb,var(--ow-blue)_12%,white)_0%,white_70%)] p-4"
         onSubmit={form.handleSubmit(onSubmit)}
       >
         <div>
@@ -173,7 +173,7 @@ export function ListingProfile(): React.ReactElement {
           {form.formState.isSubmitting ? 'Saving…' : 'Save profile'}
         </button>
       </form>
-      <section className="rounded-xl border border-line bg-white p-4">
+      <section className="rounded-xl border border-teal bg-teal-soft p-4">
         <h2 className="text-md font-semibold text-ink">
           See how your profile looks to connected retailers
         </h2>

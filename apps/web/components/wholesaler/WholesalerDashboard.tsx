@@ -1,24 +1,51 @@
 'use client';
 
 import type { WholesalerDashboard as DashboardData } from '@optiworld/shared';
-import Link from 'next/link';
+import { Calendar, Check, Clock, PackageCheck, Tags, Truck, Users } from 'lucide-react';
 import { useSession } from 'next-auth/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 
-import { loadWholesalerDashboard } from './wholesaler-api';
+import { firstName, greeting } from '@/components/retailer/dashboard-format';
+import { PosBilling } from '@/components/retailer/PosBilling';
+
 import { OrderTable } from './OrderTable';
+import { loadWholesalerDashboard } from './wholesaler-api';
+import { AMBER_CARD, BLUE_CARD, MetricCard, NAVY_CARD, TEAL_CARD } from './wholesaler-surface';
 
-const PIPELINE: readonly {
-  status: 'PENDING' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED';
-  label: string;
-}[] = [
-  { status: 'PENDING', label: 'Pending' },
-  { status: 'CONFIRMED', label: 'Confirmed' },
-  { status: 'DISPATCHED', label: 'Dispatched' },
-  { status: 'DELIVERED', label: 'Delivered' },
-];
+const PIPELINE = [
+  {
+    status: 'PENDING',
+    label: 'Pending',
+    icon: Clock,
+    card: AMBER_CARD,
+    mark: 'bg-amber-soft text-amber',
+  },
+  {
+    status: 'CONFIRMED',
+    label: 'Confirmed',
+    icon: Check,
+    card: BLUE_CARD,
+    mark: 'bg-action-soft text-action',
+  },
+  {
+    status: 'DISPATCHED',
+    label: 'Dispatched',
+    icon: Truck,
+    card: TEAL_CARD,
+    mark: 'bg-teal-soft text-teal',
+  },
+  {
+    status: 'DELIVERED',
+    label: 'Delivered',
+    icon: PackageCheck,
+    card: NAVY_CARD,
+    mark: 'bg-white text-navy',
+  },
+] as const;
 
 export function WholesalerDashboard(): React.ReactElement {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState('');
@@ -61,32 +88,67 @@ export function WholesalerDashboard(): React.ReactElement {
     );
   }
 
+  const userName = session?.user.name ?? '';
+
   return (
     <div className="space-y-4">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Pending orders" value={String(data.pendingOrders)} />
-        <Stat label="Active retailer connections" value={String(data.activeConnections)} />
-        <Stat
+      <section>
+        <p className="text-sm text-ink2">
+          {userName ? `${greeting(new Date())}, ${firstName(userName)}` : greeting(new Date())}
+        </p>
+        <h2 className="text-lg font-semibold text-ink">New bill</h2>
+        <p className="text-sm text-ink2">
+          Search a product, choose the customer, and complete the sale.
+        </p>
+      </section>
+      <Suspense
+        fallback={
+          <div
+            className="h-96 animate-pulse rounded-2xl border border-line bg-white"
+            aria-busy="true"
+          />
+        }
+      >
+        <PosBilling />
+      </Suspense>
+      <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <MetricCard
+          label="Active retailer connections"
+          value={String(data.activeConnections)}
+          card={BLUE_CARD}
+          mark="bg-action-soft text-action"
+          icon={Users}
+          onClick={() => router.push('/wholesaler/retailers')}
+        />
+        <MetricCard
           label="Catalog products"
           value={String(data.catalogProducts)}
           hint={`${data.outOfStockProducts} out of stock`}
+          card={TEAL_CARD}
+          mark="bg-teal-soft text-teal"
+          icon={Tags}
+          onClick={() => router.push('/wholesaler/catalog')}
         />
-        <Stat label="Orders today" value={String(data.ordersToday)} />
+        <MetricCard
+          label="Orders today"
+          value={String(data.ordersToday)}
+          card={NAVY_CARD}
+          mark="bg-white text-navy"
+          icon={Calendar}
+          onClick={() => router.push('/wholesaler/orders')}
+        />
       </section>
-      <section className="grid gap-2 sm:grid-cols-4" aria-label="Order pipeline">
-        {PIPELINE.map((stage, index) => (
-          <Link
+      <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-label="Order pipeline">
+        {PIPELINE.map((stage) => (
+          <MetricCard
             key={stage.status}
-            href={`/wholesaler/orders?status=${stage.status}`}
-            className="flex min-h-11 items-center justify-between rounded-xl border border-line bg-white px-4 py-3"
-          >
-            <span>
-              <span className="block text-xs font-medium uppercase tracking-wide text-ink3">
-                {index > 0 ? `→ ${stage.label}` : stage.label}
-              </span>
-              <span className="text-2xl font-semibold text-ink">{data.pipeline[stage.status]}</span>
-            </span>
-          </Link>
+            label={stage.label}
+            value={String(data.pipeline[stage.status])}
+            card={stage.card}
+            mark={stage.mark}
+            icon={stage.icon}
+            onClick={() => router.push(`/wholesaler/orders?status=${stage.status}`)}
+          />
         ))}
       </section>
       <section>
@@ -97,29 +159,11 @@ export function WholesalerDashboard(): React.ReactElement {
   );
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-}): React.ReactElement {
-  return (
-    <article className="rounded-xl border border-line bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-ink3">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-ink">{value}</p>
-      {hint ? <p className="mt-1 text-xs text-ink2">{hint}</p> : null}
-    </article>
-  );
-}
-
 function DashboardSkeleton(): React.ReactElement {
   return (
     <div className="space-y-4" aria-busy="true" aria-label="Loading dashboard">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
+        {Array.from({ length: 3 }, (_, index) => (
           <div key={index} className="h-24 animate-pulse rounded-xl border border-line bg-white" />
         ))}
       </div>

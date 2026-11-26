@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { prisma } from '@optiworld/db';
 import {
   centsToMoney,
+  DEFAULT_REMINDER_NOTE,
   paymentReminderMessage,
   type AgingReport,
   type AgingRow,
@@ -126,6 +127,7 @@ export async function exportAgingWorkbook(auth: AuthSessionUser): Promise<Buffer
 export async function sendPaymentReminders(
   auth: AuthSessionUser,
   customerIds: readonly string[] | undefined,
+  note?: string,
 ): Promise<ReminderSendResult> {
   const orgId = requiredRetailerOrgId(auth);
   const rows = await loadAgingRows(auth);
@@ -144,7 +146,7 @@ export async function sendPaymentReminders(
     });
   }
   for (const row of selected) {
-    results.push(await sendOneReminder(orgId, auth.userId, row));
+    results.push(await sendOneReminder(orgId, auth.userId, row, note));
   }
   return { results };
 }
@@ -183,6 +185,7 @@ async function loadAgingRows(auth: AuthSessionUser, now = new Date()): Promise<A
       total: string;
       paid: string;
       remaining: string;
+      issuedAt: string;
     }> = [];
     let earliestDue: Date | null = null;
     for (const invoice of customer.invoices) {
@@ -197,6 +200,7 @@ async function loadAgingRows(auth: AuthSessionUser, now = new Date()): Promise<A
         total: formatAmount(invoiceTotal),
         paid: formatAmount(Math.min(paid, invoiceTotal)),
         remaining: formatAmount(due),
+        issuedAt: formatIssuedAt(invoice.issuedAt),
       });
       const age = ageDays(invoice.issuedAt, now);
       addBucket(buckets, age, due);
@@ -229,6 +233,7 @@ async function loadAgingRows(auth: AuthSessionUser, now = new Date()): Promise<A
         dueOn,
         bills: openBills,
       }),
+      remindersSentAt: [],
     });
   }
   rows.sort(
@@ -236,13 +241,21 @@ async function loadAgingRows(auth: AuthSessionUser, now = new Date()): Promise<A
       moneyToNumber(b.total) - moneyToNumber(a.total) ||
       a.customerName.localeCompare(b.customerName),
   );
-  return rows;
+  const sentAt = await reminderTimes(
+    orgId,
+    rows.map((row) => row.customerId),
+  );
+  return rows.map((row) => ({
+    ...row,
+    remindersSentAt: sentAt.get(row.customerId) ?? [],
+  }));
 }
 
 async function sendOneReminder(
   orgId: string,
   userId: string,
   row: AgingRow,
+  note?: string,
 ): Promise<ReminderSendResult['results'][number]> {
   const phone = (row.phone ?? '').replace(/\D/g, '');
   if (!phone) {
@@ -256,6 +269,8 @@ async function sendOneReminder(
   }
   const token = process.env.WHATSAPP_API_TOKEN ?? '';
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
+  const closing = (note?.trim() || DEFAULT_REMINDER_NOTE).slice(0, 500);
+  const message = reminderText(row.preview, closing);
   if (!token || !phoneNumberId) {
     await logReminder(orgId, userId, row.customerId, false, 'WhatsApp is not configured');
     return {
@@ -266,39 +281,14 @@ async function sendOneReminder(
     };
   }
   try {
-    const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: phone,
-        type: 'template',
-        template: {
-          name: 'optiworld_payment_reminder',
-          language: { code: 'en' },
-          components: [
-            {
-              type: 'body',
-              parameters: [
-                { type: 'text', text: row.customerName },
-                { type: 'text', text: row.total },
-                { type: 'text', text: row.dueOn },
-              ],
-            },
-          ],
-        },
-      }),
-    });
-    if (!response.ok) {
+    const sent = await deliverReminder(token, phoneNumberId, phone, row, message, closing);
+    if (!sent) {
       await logReminder(
         orgId,
         userId,
         row.customerId,
         false,
-        `WhatsApp returned ${response.status}`,
+        'WhatsApp could not send this reminder',
       );
       return {
         customerId: row.customerId,
@@ -307,7 +297,7 @@ async function sendOneReminder(
         message: 'WhatsApp could not send this reminder.',
       };
     }
-    await logReminder(orgId, userId, row.customerId, true, 'Payment reminder sent');
+    await logReminder(orgId, userId, row.customerId, true, message);
     return {
       customerId: row.customerId,
       customerName: row.customerName,
@@ -326,6 +316,94 @@ async function sendOneReminder(
       message: 'WhatsApp could not send this reminder.',
     };
   }
+}
+
+function reminderText(preview: string, note: string): string {
+  const splitAt = preview.lastIndexOf('\n\n');
+  if (splitAt === -1) {
+    return `${preview}\n\n${note}`;
+  }
+  return `${preview.slice(0, splitAt)}\n\n${note}`;
+}
+
+async function deliverReminder(
+  token: string,
+  phoneNumberId: string,
+  phone: string,
+  row: AgingRow,
+  message: string,
+  note: string,
+): Promise<boolean> {
+  const textSent = await postWhatsApp(token, phoneNumberId, {
+    messaging_product: 'whatsapp',
+    to: phone,
+    type: 'text',
+    text: { preview_url: false, body: message.slice(0, 4096) },
+  });
+  if (textSent) {
+    return true;
+  }
+  return postWhatsApp(token, phoneNumberId, {
+    messaging_product: 'whatsapp',
+    to: phone,
+    type: 'template',
+    template: {
+      name: 'optiworld_payment_reminder',
+      language: { code: 'en' },
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: row.customerName },
+            { type: 'text', text: row.total },
+            { type: 'text', text: `${row.dueOn}. ${note}`.slice(0, 900) },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+async function postWhatsApp(
+  token: string,
+  phoneNumberId: string,
+  body: Record<string, unknown>,
+): Promise<boolean> {
+  const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  return response.ok;
+}
+
+async function reminderTimes(
+  orgId: string,
+  customerIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const times = new Map<string, string[]>();
+  if (customerIds.length === 0) {
+    return times;
+  }
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      orgId,
+      action: 'WHATSAPP_REMINDER_SENT',
+      entityType: 'Customer',
+      entityId: { in: [...customerIds] },
+    },
+    select: { entityId: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  for (const log of logs) {
+    const list = times.get(log.entityId) ?? [];
+    list.push(log.createdAt.toISOString());
+    times.set(log.entityId, list);
+  }
+  return times;
 }
 
 async function logReminder(
@@ -395,6 +473,18 @@ function addUtcDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function formatIssuedAt(date: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Karachi',
+  }).format(date);
 }
 
 function formatDay(date: Date): string {

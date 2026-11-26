@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
+import { shopPagePath, isShopOwnerRole } from '@/lib/shop-scope';
 import { useEffect, useMemo, useState } from 'react';
 
 import { formatRupee, formatShortDate } from './dashboard-format';
@@ -80,7 +81,7 @@ export function InventoryReport({
 }): React.ReactElement | null {
   const { data: session, status } = useSession();
   const token = session?.accessToken;
-  const isOwner = session?.user.role === 'OWNER';
+  const isOwner = isShopOwnerRole(session?.user.role);
   const initial = defaultReportRange();
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -463,7 +464,7 @@ function MovementRow({
     >
       <td className="px-3 py-2">
         <Link
-          href={`/retailer/inventory/${row.batchId}`}
+          href={shopPagePath(`/retailer/inventory/${row.batchId}`)}
           className="text-sm font-medium text-action"
         >
           {row.productName}
@@ -697,7 +698,7 @@ function LowStockDetail({
           <div className="flex flex-wrap items-center justify-between gap-2">
             {item.batchId ? (
               <Link
-                href={`/retailer/inventory/${item.batchId}`}
+                href={shopPagePath(`/retailer/inventory/${item.batchId}`)}
                 className="text-sm font-semibold text-ink"
               >
                 {item.title}
@@ -717,7 +718,10 @@ function LowStockDetail({
 function ProductCell({ row }: { row: ReportRow }): React.ReactElement {
   return (
     <td className="px-3 py-2">
-      <Link href={`/retailer/inventory/${row.batchId}`} className="text-sm font-medium text-action">
+      <Link
+        href={shopPagePath(`/retailer/inventory/${row.batchId}`)}
+        className="text-sm font-medium text-action"
+      >
         {row.productName}
       </Link>
       <p className="text-xs text-ink3">{row.priceCode}</p>

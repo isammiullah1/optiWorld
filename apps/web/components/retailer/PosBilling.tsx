@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  RetailerShellSchema,
   centsToMoney,
   moneyToCents,
   resolveDiscountCents,
@@ -16,6 +15,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { readPosSnapshot, writePosMeta } from '@/lib/offline/pos-db';
+import { shopPagePath, shopScope } from '@/lib/shop-scope';
 import { recordCartSale, registerInvoiceSync, syncPos } from '@/lib/offline/sync-client';
 
 import {
@@ -249,7 +249,9 @@ export function PosBilling(): React.ReactElement {
       })
       .catch(() => undefined);
     void fetch(
-      `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/api/v1/retailer/shell`,
+      `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}${
+        shopScope() === 'wholesaler' ? '/api/v1/wholesaler/shell' : '/api/v1/retailer/shell'
+      }`,
       {
         headers: { authorization: `Bearer ${token}` },
       },
@@ -257,7 +259,7 @@ export function PosBilling(): React.ReactElement {
       .then((response) => response.json())
       .then((payload: unknown) => {
         const parsed = z
-          .object({ success: z.literal(true), data: RetailerShellSchema })
+          .object({ success: z.literal(true), data: z.object({ orgName: z.string() }) })
           .safeParse(payload);
         if (parsed.success) {
           void writePosMeta('orgName', parsed.data.data.orgName);
@@ -572,7 +574,7 @@ export function PosBilling(): React.ReactElement {
       };
       if (!offline && token) {
         const receipt = await createPosInvoice(token, payload);
-        router.push(`/retailer/billing/${receipt.id}/receipt`);
+        router.push(shopPagePath(`/retailer/billing/${receipt.id}/receipt`));
         return;
       }
       await recordCartSale({
@@ -587,7 +589,7 @@ export function PosBilling(): React.ReactElement {
         ...deliveryFields,
       });
       await registerInvoiceSync();
-      router.push(`/retailer/billing/local/${localId}/receipt`);
+      router.push(shopPagePath(`/retailer/billing/local/${localId}/receipt`));
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'The sale could not be completed.';
       if (message === 'Enter the customer name and WhatsApp number.') {

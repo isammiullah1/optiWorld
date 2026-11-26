@@ -11,9 +11,11 @@ import { z } from 'zod';
 import { POS_CHANGED_EVENT, readPosSnapshot } from '@/lib/offline/pos-db';
 import { syncPos } from '@/lib/offline/sync-client';
 
+import { useShopScope } from '@/lib/shop-scope';
 import { SignOutButton } from '@/components/auth/SignOutButton';
 
 import { ALERTS_CHANGED_EVENT } from './alerts-api';
+import { BackNav } from './BackNav';
 import { loadRetailerProfile } from './retailer-account-api';
 import { OfflineBanner } from './offline-banner';
 import { RetailerSidebar } from './RetailerSidebar';
@@ -44,6 +46,7 @@ export function RetailerShell({
   role,
   children,
 }: RetailerShellProps): React.ReactElement {
+  useShopScope('retailer');
   const pathname = usePathname();
   const { data: session } = useSession();
   const [orgName, setOrgName] = useState('');
@@ -192,7 +195,10 @@ export function RetailerShell({
       <div className="flex min-h-screen flex-col print:pl-0 md:pl-16 lg:pl-[280px]">
         <RetailerTopbar title={retailerPageTitle(pathname)} unreadAlertCount={unreadAlertCount} />
         <OfflineBanner online={online} pendingCount={pendingCount} syncingLabel={syncingLabel} />
-        <div className="flex-1 px-3 py-3 pb-24 md:px-5 md:py-4 md:pb-4">{children}</div>
+        <div className="flex-1 px-3 py-3 pb-24 md:px-5 md:py-4 md:pb-4">
+          <BackNav />
+          {children}
+        </div>
       </div>
       <nav
         className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white print:hidden md:hidden"

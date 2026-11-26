@@ -6,6 +6,7 @@ const INVOICE_KIND: Record<string, RecordActivity['kind']> = {
   OFFLINE_INVOICE_SYNCED: 'PREPARED',
   OFFLINE_INVOICE_REPLACED: 'PREPARED',
   INVOICE_CREDIT_CLEARED: 'UPDATED',
+  INVOICE_UPDATED: 'UPDATED',
   INVOICE_PRESCRIPTION_UPDATED: 'UPDATED',
   INVOICE_SENT_TO_LAB: 'UPDATED',
   INVOICE_LAB_UNSENT: 'UPDATED',
@@ -272,6 +273,9 @@ function invoiceDetails(
         ? `Recorded ₨ ${amount} received.${outstanding ? ` Remaining ₨ ${outstanding}.` : ''}`
         : 'Recorded a payment on this bill.',
     ];
+  }
+  if (action === 'INVOICE_UPDATED') {
+    return [`Updated invoice${number}.`];
   }
   if (action === 'INVOICE_PRESCRIPTION_UPDATED') {
     return ['Updated the prescription. The earlier reading was not recorded.'];

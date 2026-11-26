@@ -66,7 +66,7 @@ export function InventorySections({
       >
         <ReportTable
           tone="navy"
-          columns={['When', 'Product', 'Kind', 'Quantity', 'Balance', 'Reason', 'By']}
+          columns={['When', 'Product', 'Kind', 'Quantity', 'Current Stock', 'Reason', 'By']}
           empty="No stock movement in this period."
           rows={report.ledger.map((row) => [
             { text: formatDateTime(row.at), className: 'text-ink2' },

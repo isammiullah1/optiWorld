@@ -1,10 +1,12 @@
 import { prisma } from '@optiworld/db';
 import {
   centsToMoney,
+  isSameSaleDay,
   labJobNeedsLabDecision,
   moneyToCents,
   prescriptionIssuePaths,
   type AuthSessionUser,
+  type EditInvoiceSaleRequest,
   type FinalizeInvoiceLabRequest,
   type InvoiceNotice,
   type JobStatus,
@@ -12,8 +14,9 @@ import {
 } from '@optiworld/shared';
 
 import { AppError } from '../lib/errors.js';
+import { isShopOwner, requiredShopOrgId } from '../lib/shop-org.js';
 import { refreshDeliveryForInvoice } from './deliveries.service.js';
-import { recordSaleMovements } from './inventory.service.js';
+import { recordSaleMovements, returnMovementNote } from './inventory.service.js';
 import {
   requestReceivedCancellation,
   requestReceivedPrescription,
@@ -371,6 +374,7 @@ export async function updateInvoicePrescription(
         retailerOrgId: orgId,
       },
       {
+        title: prescription.title?.trim() ?? '',
         right: prescription.right,
         left: prescription.left,
         add: prescription.add,
@@ -399,6 +403,7 @@ export async function updateInvoicePrescription(
         where: { id: item.id },
         data: {
           prescription: {
+            title: prescription.title?.trim() ?? '',
             right: prescription.right,
             left: prescription.left,
             add: prescription.add,
@@ -420,6 +425,7 @@ export async function updateInvoicePrescription(
         where: { id: job.id },
         data: {
           prescription: {
+            title: prescription.title?.trim() ?? '',
             right: prescription.right,
             left: prescription.left,
             add: prescription.add,
@@ -641,6 +647,7 @@ export async function finalizeInvoiceLabEdit(
           where: { id: job.id },
           data: {
             prescription: {
+              title: matched.prescription.title?.trim() ?? '',
               right: matched.prescription.right,
               left: matched.prescription.left,
               add: matched.prescription.add,
@@ -703,6 +710,10 @@ export async function finalizeInvoiceLabEdit(
           invoiceNumber: invoice.invoiceNumber,
           added: createdLines.map((line) => line.productName),
           total: centsToMoney(total),
+          details: [
+            ...createdLines.map((line) => `Added ${line.quantity} × ${line.productName}.`),
+            `Total is now ${rupees(total)}.`,
+          ],
         },
       },
     });
@@ -712,6 +723,479 @@ export async function finalizeInvoiceLabEdit(
     sent: false,
     message: 'The sale was updated. The total includes the new lines.',
   };
+}
+
+export async function editInvoiceSale(
+  auth: AuthSessionUser,
+  invoiceId: string,
+  input: EditInvoiceSaleRequest,
+): Promise<InvoiceNotice> {
+  const orgId = requireOwner(auth);
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, orgId },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      issuedAt: true,
+      cancelledAt: true,
+      customerId: true,
+      discount: true,
+      paymentType: true,
+      total: true,
+      payments: { select: { amount: true } },
+      delivery: { select: { charge: true } },
+      items: {
+        select: {
+          id: true,
+          productName: true,
+          quantity: true,
+          stockShortfall: true,
+          inventoryBatchId: true,
+          unitPrice: true,
+        },
+      },
+    },
+  });
+  if (!invoice) {
+    throw new AppError(404, 'NOT_FOUND', 'Invoice was not found');
+  }
+  assertOpen(invoice.cancelledAt);
+  const sameDay = isSameSaleDay(invoice.issuedAt);
+  if (!sameDay && input.additions.length > 0) {
+    throw new AppError(
+      422,
+      'VALIDATION_ERROR',
+      'A bill from an earlier day cannot gain items or a higher quantity.',
+    );
+  }
+  const seen = new Set<string>();
+  for (const line of input.items) {
+    if (seen.has(line.itemId)) {
+      throw new AppError(422, 'VALIDATION_ERROR', 'An item was sent twice.');
+    }
+    seen.add(line.itemId);
+  }
+  const byId = new Map(invoice.items.map((item) => [item.id, item]));
+  for (const line of input.items) {
+    const current = byId.get(line.itemId);
+    if (!current) {
+      throw new AppError(422, 'VALIDATION_ERROR', 'One of the items is not on this bill.');
+    }
+    if (!sameDay && line.quantity > current.quantity) {
+      throw new AppError(
+        422,
+        'VALIDATION_ERROR',
+        'A bill from an earlier day cannot gain items or a higher quantity.',
+      );
+    }
+  }
+  const removed = invoice.items.filter((item) => !seen.has(item.id));
+  const quantityChanged = input.items.some(
+    (line) => byId.get(line.itemId)?.quantity !== line.quantity,
+  );
+  const priceChanged = input.items.some((line) => {
+    const item = byId.get(line.itemId);
+    return (
+      item !== undefined && moneyToCents(item.unitPrice.toFixed(2)) !== moneyToCents(line.unitPrice)
+    );
+  });
+  const paidCents = invoice.payments.reduce(
+    (sum, payment) => sum + moneyToCents(payment.amount.toFixed(2)),
+    0,
+  );
+  const discountChanged =
+    moneyToCents(input.discount) !== moneyToCents(invoice.discount.toFixed(2));
+  const paymentChanged =
+    input.paymentType !== invoice.paymentType ||
+    (input.paymentType === 'CREDIT' && moneyToCents(input.amountReceived ?? '0') !== paidCents);
+  if (
+    removed.length === 0 &&
+    !quantityChanged &&
+    !priceChanged &&
+    !discountChanged &&
+    !paymentChanged &&
+    input.additions.length === 0
+  ) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Nothing on this bill was changed.');
+  }
+  if (input.items.length + input.additions.length === 0) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Keep at least one item, or cancel the bill.');
+  }
+
+  let refunded = 0;
+  let collected = 0;
+  await prisma.$transaction(async (tx) => {
+    const demand = new Map<string, number>();
+    const restores = new Map<string, number>();
+    const added = new Map<string, number>();
+    const note = (bucket: Map<string, number>, batchId: string | null, units: number): void => {
+      if (!batchId || units === 0) {
+        return;
+      }
+      bucket.set(batchId, (bucket.get(batchId) ?? 0) + units);
+    };
+
+    for (const item of invoice.items) {
+      const next = input.items.find((line) => line.itemId === item.id);
+      const newQty = next?.quantity ?? 0;
+      const sold = Math.max(0, item.quantity - item.stockShortfall);
+      if (newQty > item.quantity) {
+        note(demand, item.inventoryBatchId, newQty - item.quantity);
+      } else {
+        note(restores, item.inventoryBatchId, sold - Math.min(sold, newQty));
+      }
+    }
+    const additionBatches = [];
+    for (const addition of input.additions) {
+      const batch = await tx.inventoryBatch.findFirst({
+        where: { id: addition.inventoryBatchId, orgId, deletedAt: null },
+        select: { id: true, productName: true, priceCode: true, salePrice: true, stockQty: true },
+      });
+      if (!batch) {
+        throw new AppError(422, 'VALIDATION_ERROR', 'A product in this sale is not in the shop.');
+      }
+      additionBatches.push({ ...addition, batch });
+      note(added, batch.id, addition.quantity);
+    }
+
+    const batchIds = new Set<string>([...demand.keys(), ...restores.keys(), ...added.keys()]);
+    for (const batchId of batchIds) {
+      const net =
+        (demand.get(batchId) ?? 0) + (added.get(batchId) ?? 0) - (restores.get(batchId) ?? 0);
+      if (net <= 0) {
+        continue;
+      }
+      const taken = await tx.inventoryBatch.updateMany({
+        where: { id: batchId, orgId, stockQty: { gte: net } },
+        data: { stockQty: { decrement: net } },
+      });
+      if (taken.count !== 1) {
+        throw new AppError(422, 'VALIDATION_ERROR', 'There is not enough stock for this change.');
+      }
+    }
+    for (const batchId of batchIds) {
+      const net =
+        (restores.get(batchId) ?? 0) - (demand.get(batchId) ?? 0) - (added.get(batchId) ?? 0);
+      if (net <= 0) {
+        continue;
+      }
+      await tx.inventoryBatch.updateMany({
+        where: { id: batchId, orgId },
+        data: { stockQty: { increment: net } },
+      });
+    }
+
+    for (const item of removed) {
+      await tx.stockMovement.updateMany({
+        where: { invoiceItemId: item.id },
+        data: { invoiceItemId: null },
+      });
+      await tx.invoiceItem.delete({ where: { id: item.id } });
+    }
+    for (const line of input.items) {
+      const item = byId.get(line.itemId);
+      if (!item) {
+        continue;
+      }
+      const rateChanged = moneyToCents(item.unitPrice.toFixed(2)) !== moneyToCents(line.unitPrice);
+      if (line.quantity === item.quantity) {
+        if (rateChanged) {
+          await tx.invoiceItem.update({
+            where: { id: item.id },
+            data: { unitPrice: line.unitPrice },
+          });
+        }
+        continue;
+      }
+      const sold = Math.max(0, item.quantity - item.stockShortfall);
+      const newSold =
+        line.quantity > item.quantity
+          ? sold + (line.quantity - item.quantity)
+          : Math.min(sold, line.quantity);
+      await tx.invoiceItem.update({
+        where: { id: item.id },
+        data: {
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          stockShortfall: line.quantity - newSold,
+        },
+      });
+    }
+
+    const createdLines = [];
+    for (const addition of additionBatches) {
+      const created = await tx.invoiceItem.create({
+        data: {
+          invoiceId: invoice.id,
+          inventoryBatchId: addition.batch.id,
+          productName: addition.batch.productName,
+          priceCode: addition.batch.priceCode,
+          quantity: addition.quantity,
+          unitPrice: addition.unitPrice,
+          salePrice: addition.batch.salePrice,
+          stockShortfall: 0,
+        },
+        select: { id: true, inventoryBatchId: true, quantity: true, stockShortfall: true },
+      });
+      createdLines.push(created);
+    }
+    await recordSaleMovements(tx, orgId, createdLines, auth.userId);
+
+    const touched = new Set<string>([...demand.keys(), ...restores.keys()]);
+    for (const batchId of touched) {
+      const batch = await tx.inventoryBatch.findFirst({
+        where: { id: batchId, orgId },
+        select: { stockQty: true, productName: true },
+      });
+      const net = (restores.get(batchId) ?? 0) - (demand.get(batchId) ?? 0);
+      if (!batch || net === 0) {
+        continue;
+      }
+      const returned = net > 0;
+      await tx.stockMovement.create({
+        data: {
+          orgId,
+          batchId,
+          type: 'CORRECTION',
+          quantityChange: net,
+          balanceAfter: batch.stockQty,
+          note: returned
+            ? returnMovementNote(net, batch.productName, invoice.invoiceNumber, auth.name)
+            : `Sold ${Math.abs(net)} × ${batch.productName} on invoice #${invoice.invoiceNumber} by ${auth.name}`,
+          createdByUserId: auth.userId,
+        },
+      });
+    }
+
+    const items = await tx.invoiceItem.findMany({
+      where: { invoiceId: invoice.id },
+      select: { unitPrice: true, quantity: true, stockShortfall: true },
+    });
+    const subtotal = items.reduce(
+      (sum, item) => sum + moneyToCents(item.unitPrice.toFixed(2)) * item.quantity,
+      0,
+    );
+    const previousDiscount = moneyToCents(invoice.discount.toFixed(2));
+    let discount = moneyToCents(input.discount);
+    const discountReduced = discount > subtotal;
+    if (discountReduced) {
+      discount = subtotal;
+    }
+    const delivery = invoice.delivery ? moneyToCents(invoice.delivery.charge.toFixed(2)) : 0;
+    const total = subtotal - discount + delivery;
+    const desiredPaid =
+      input.paymentType === 'CASH'
+        ? total
+        : Math.min(total, moneyToCents(input.amountReceived ?? '0'));
+    const settlement = await alignBillReceipt(
+      tx,
+      invoice.id,
+      invoice.invoiceNumber,
+      desiredPaid,
+      invoice.customerId,
+      orgId,
+    );
+    refunded = settlement.refunded;
+    collected = settlement.collected;
+    const previousTotal = moneyToCents(invoice.total.toFixed(2));
+    const details = editDetails({
+      lines: input.items,
+      current: byId,
+      removed,
+      additions: additionBatches.map((line) => ({
+        productName: line.batch.productName,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        catalogPrice: line.batch.salePrice.toFixed(2),
+      })),
+      previousTotal,
+      total,
+      previousDiscount,
+      discountReduced,
+      discount,
+      paymentType: input.paymentType,
+      previousPaymentType: invoice.paymentType,
+      refunded: settlement.refunded,
+      collected: settlement.collected,
+    });
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        total: centsToMoney(total),
+        discount: centsToMoney(discount),
+        paymentType: input.paymentType,
+        status: settlement.paid >= total ? 'PAID' : 'CREDIT',
+        needsReview: items.some((item) => item.stockShortfall > 0),
+      },
+    });
+    await refreshDeliveryForInvoice(tx, invoice.id);
+    await tx.auditLog.create({
+      data: {
+        orgId,
+        userId: auth.userId,
+        action: 'INVOICE_UPDATED',
+        entityType: 'Invoice',
+        entityId: invoice.id,
+        metadata: {
+          invoiceNumber: invoice.invoiceNumber,
+          removed: removed.map((item) => item.productName),
+          added: additionBatches.map((line) => line.batch.productName),
+          total: centsToMoney(total),
+          ...(settlement.refunded > 0 ? { refunded: centsToMoney(settlement.refunded) } : {}),
+          ...(settlement.collected > 0 ? { collected: centsToMoney(settlement.collected) } : {}),
+          details,
+        },
+      },
+    });
+  });
+
+  return {
+    id: invoice.id,
+    sent: false,
+    message:
+      refunded > 0
+        ? `The bill was updated. ${rupees(refunded)} already received was brought in line with the new total.`
+        : collected > 0
+          ? `The bill was updated. ${rupees(collected)} was recorded as received.`
+          : 'The bill was updated.',
+  };
+}
+
+type BillTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+async function alignBillReceipt(
+  tx: BillTx,
+  invoiceId: string,
+  invoiceNumber: number,
+  target: number,
+  customerId: string,
+  orgId: string,
+): Promise<{ paid: number; refunded: number; collected: number }> {
+  const payments = await tx.payment.findMany({
+    where: { invoiceId },
+    orderBy: { recordedAt: 'desc' },
+    select: { id: true, amount: true, notes: true },
+  });
+  const paid = payments.reduce((sum, payment) => sum + moneyToCents(payment.amount.toFixed(2)), 0);
+  if (paid === target) {
+    return { paid, refunded: 0, collected: 0 };
+  }
+  if (paid < target) {
+    const extra = target - paid;
+    await tx.payment.create({
+      data: {
+        customerId,
+        invoiceId,
+        orgId,
+        amount: centsToMoney(extra),
+        method: 'CASH',
+        notes: `Amount received on invoice #${invoiceNumber}.`,
+      },
+    });
+    return { paid: target, refunded: 0, collected: extra };
+  }
+  let excess = paid - target;
+  for (const payment of payments) {
+    if (excess <= 0) {
+      break;
+    }
+    const amount = moneyToCents(payment.amount.toFixed(2));
+    const take = Math.min(amount, excess);
+    const left = amount - take;
+    excess -= take;
+    if (left === 0) {
+      await tx.payment.delete({ where: { id: payment.id } });
+      continue;
+    }
+    const refund = `Refunded ${rupees(take)} on invoice #${invoiceNumber}.`;
+    const notes = payment.notes?.trim() ? `${payment.notes.trim()} ${refund}` : refund;
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: { amount: centsToMoney(left), notes },
+    });
+  }
+  return { paid: target, refunded: paid - target, collected: 0 };
+}
+
+function editDetails(input: {
+  lines: readonly { itemId: string; quantity: number; unitPrice: string }[];
+  current: ReadonlyMap<
+    string,
+    { productName: string; quantity: number; unitPrice: { toFixed(digits: number): string } }
+  >;
+  removed: readonly { productName: string; quantity: number }[];
+  additions: readonly {
+    productName: string;
+    quantity: number;
+    unitPrice: string;
+    catalogPrice: string;
+  }[];
+  previousTotal: number;
+  total: number;
+  previousDiscount: number;
+  discountReduced: boolean;
+  discount: number;
+  paymentType: 'CASH' | 'CREDIT';
+  previousPaymentType: string;
+  refunded: number;
+  collected: number;
+}): string[] {
+  const details: string[] = [];
+  for (const line of input.lines) {
+    const item = input.current.get(line.itemId);
+    if (!item) {
+      continue;
+    }
+    if (line.quantity !== item.quantity) {
+      const change = Math.abs(item.quantity - line.quantity);
+      details.push(
+        line.quantity < item.quantity
+          ? `Returned ${change} × ${item.productName}. Quantity ${item.quantity} → ${line.quantity}.`
+          : `Increased ${item.productName} from ${item.quantity} to ${line.quantity}.`,
+      );
+    }
+    const previousRate = moneyToCents(item.unitPrice.toFixed(2));
+    const nextRate = moneyToCents(line.unitPrice);
+    if (previousRate !== nextRate) {
+      details.push(`${item.productName} rate ${rupees(previousRate)} → ${rupees(nextRate)}.`);
+    }
+  }
+  for (const item of input.removed) {
+    details.push(`Returned ${item.quantity} × ${item.productName}. Removed from the bill.`);
+  }
+  for (const addition of input.additions) {
+    const billed = moneyToCents(addition.unitPrice);
+    const catalog = moneyToCents(addition.catalogPrice);
+    details.push(
+      billed === catalog
+        ? `Added ${addition.quantity} × ${addition.productName}.`
+        : `Added ${addition.quantity} × ${addition.productName} at ${rupees(billed)}.`,
+    );
+  }
+  if (input.discountReduced) {
+    details.push(`Discount reduced to ${rupees(input.discount)} so it fits the new sale.`);
+  } else if (input.previousDiscount !== input.discount) {
+    details.push(`Discount ${rupees(input.previousDiscount)} → ${rupees(input.discount)}.`);
+  }
+  if (input.paymentType !== input.previousPaymentType) {
+    details.push(
+      input.paymentType === 'CASH' ? 'Marked the bill as cash.' : 'Marked the bill as credit.',
+    );
+  }
+  details.push(`Total ${rupees(input.previousTotal)} → ${rupees(input.total)}.`);
+  if (input.collected > 0) {
+    details.push(`Recorded ${rupees(input.collected)} received.`);
+  }
+  if (input.refunded > 0) {
+    details.push(
+      `Refunded ${rupees(input.refunded)} so the amount received matches the new total.`,
+    );
+  }
+  return details;
+}
+
+function rupees(cents: number): string {
+  return `₨ ${centsToMoney(cents)}`;
 }
 
 async function loadBill(orgId: string, invoiceId: string) {
@@ -758,13 +1242,11 @@ function assertOpen(cancelledAt: Date | null): void {
 }
 
 function requireOwner(auth: AuthSessionUser): string {
-  if (auth.orgType !== 'RETAILER' || !auth.orgId) {
-    throw new AppError(403, 'FORBIDDEN', 'A retailer organisation is required');
-  }
-  if (auth.role !== 'OWNER') {
+  const orgId = requiredShopOrgId(auth);
+  if (!isShopOwner(auth)) {
     throw new AppError(403, 'FORBIDDEN', 'Only the shop owner can change a bill');
   }
-  return auth.orgId;
+  return orgId;
 }
 
 function customerPhone(customer: { phone: string | null; whatsappNumber: string | null }): string {
@@ -776,9 +1258,14 @@ function describeReading(value: unknown): string {
   if (!reading) {
     return '';
   }
-  const parts = [`R ${eyeLine(reading.right)} · L ${eyeLine(reading.left)}`];
-  if (reading.add.trim()) {
-    parts.push(`Add ${reading.add.trim()}`);
+  const rightAdd = eyeAdd(reading.right, reading.add);
+  const leftAdd = eyeAdd(reading.left, reading.add);
+  const parts = [
+    `R ${eyeLine(reading.right, rightAdd, leftAdd)} · L ${eyeLine(reading.left, leftAdd, rightAdd)}`,
+  ];
+  if (rightAdd && rightAdd === leftAdd) {
+    parts[0] = `R ${eyeLine(reading.right)} · L ${eyeLine(reading.left)}`;
+    parts.push(`Add ${rightAdd}`);
   }
   if (reading.pd.trim()) {
     parts.push(`PD ${reading.pd.trim()}`);
@@ -789,13 +1276,22 @@ function describeReading(value: unknown): string {
   return parts.join(' · ');
 }
 
-function eyeLine(eye: { sphere: string; cylinder: string; axis: string }): string {
+function eyeLine(
+  eye: { sphere: string; cylinder: string; axis: string },
+  add = '',
+  otherAdd = '',
+): string {
   const parts = [
     eye.sphere.trim() ? `SPH ${eye.sphere.trim()}` : '',
     eye.cylinder.trim() ? `CYL ${eye.cylinder.trim()}` : '',
     eye.axis.trim() ? `Axis ${eye.axis.trim()}` : '',
+    add && add !== otherAdd ? `Add ${add}` : '',
   ].filter((part) => part.length > 0);
   return parts.length > 0 ? parts.join(' ') : '—';
+}
+
+function eyeAdd(eye: { add?: string }, shared: string): string {
+  return typeof eye.add === 'string' ? eye.add.trim() : shared.trim();
 }
 
 function storedReading(value: unknown): {
@@ -835,9 +1331,10 @@ function storedEye(value: unknown): ReceiptPrescription['right'] {
     return { sphere: '', cylinder: '', axis: '' };
   }
   const eye = value as Record<string, unknown>;
-  return {
+  const reading = {
     sphere: typeof eye.sphere === 'string' ? eye.sphere : '',
     cylinder: typeof eye.cylinder === 'string' ? eye.cylinder : '',
     axis: typeof eye.axis === 'string' ? eye.axis : '',
   };
+  return typeof eye.add === 'string' ? { ...reading, add: eye.add } : reading;
 }

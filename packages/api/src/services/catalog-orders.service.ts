@@ -588,7 +588,7 @@ export async function listRetailerOrders(
     prisma.order.findMany({
       where,
       include: {
-        wholesaler: { select: { name: true } },
+        wholesaler: { select: { id: true, name: true } },
         connection: { select: { visibilityMode: true } },
         items: { select: { productName: true }, orderBy: { createdAt: 'asc' } },
         _count: { select: { items: true } },
@@ -604,10 +604,12 @@ export async function listRetailerOrders(
     data: rows.map((row) => ({
       id: row.id,
       reference: orderReference(row.id),
+      wholesalerOrgId: row.wholesaler.id,
       wholesalerName: row.wholesaler.name,
       itemCount: row._count.items,
       products: row.items.map((item) => item.productName),
       status: row.status,
+      openedByWholesaler: row.settlement === 'CASH' || row.settlement === 'CREDIT',
       createdAt: row.createdAt.toISOString(),
       totalValue: row.connection.visibilityMode === 'FULL' ? moneyText(row.totalValue) : null,
     })),
@@ -650,6 +652,7 @@ export async function getOrderDetail(
     id: record.id,
     reference: orderReference(record.id),
     status: record.status,
+    openedByWholesaler: record.settlement === 'CASH' || record.settlement === 'CREDIT',
     lockedAt: record.lockedAt ? record.lockedAt.toISOString() : null,
     notes: record.notes,
     createdAt: record.createdAt.toISOString(),

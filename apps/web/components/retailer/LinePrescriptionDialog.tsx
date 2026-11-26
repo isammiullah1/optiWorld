@@ -2,6 +2,7 @@
 
 import {
   prescriptionIssues,
+  resolvedEyeAdd,
   type ConnectedLab,
   type ItemPrescription,
   type PrescriptionIssueKey,
@@ -10,7 +11,11 @@ import {
 import { useEffect, useRef, useState } from 'react';
 
 import { formatShortDate } from './dashboard-format';
-import { emptyItemPrescription, prescriptionLabel } from './item-prescription';
+import {
+  emptyItemPrescription,
+  prescriptionChoiceLabel,
+  prescriptionLabel,
+} from './item-prescription';
 import { PrescriptionFields } from './PrescriptionFields';
 
 export type BillLinePrescription = {
@@ -55,10 +60,11 @@ export function LinePrescriptionDialog({
   const [draft, setDraft] = useState<ItemPrescription>(() =>
     initialPrescription
       ? {
+          title: initialPrescription.title ?? '',
           right: { ...initialPrescription.right },
           left: { ...initialPrescription.left },
           add: initialPrescription.add,
-          pd: initialPrescription.pd,
+          pd: initialPrescription.pd.trim() || '62',
           notes: initialPrescription.notes,
         }
       : emptyItemPrescription(),
@@ -75,7 +81,8 @@ export function LinePrescriptionDialog({
     draft.right.cylinder !== '' ||
     draft.left.sphere !== '' ||
     draft.left.cylinder !== '' ||
-    draft.add !== '' ||
+    resolvedEyeAdd(draft.right, draft.add) !== '' ||
+    resolvedEyeAdd(draft.left, draft.add) !== '' ||
     draft.pd !== '';
   const visionSummary = hasVision ? prescriptionLabel(draft) : null;
 
@@ -93,10 +100,11 @@ export function LinePrescriptionDialog({
       setLabId(labOrgId);
     }
     setDraft({
+      title: record.title ?? '',
       right: { ...record.right },
       left: { ...record.left },
       add: record.add,
-      pd: record.pd,
+      pd: record.pd.trim() || '62',
       notes: record.notes,
     });
   }
@@ -119,10 +127,11 @@ export function LinePrescriptionDialog({
       setLabId(entry.labOrgId);
     }
     setDraft({
+      title: entry.prescription.title ?? '',
       right: { ...entry.prescription.right },
       left: { ...entry.prescription.left },
       add: entry.prescription.add,
-      pd: entry.prescription.pd,
+      pd: entry.prescription.pd.trim() || '62',
       notes: entry.prescription.notes,
     });
   }
@@ -187,17 +196,25 @@ export function LinePrescriptionDialog({
             }}
             className="min-h-11 w-full rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none focus:border-action"
           >
-            <option value="">{visionSummary ?? 'Earlier Prescriptions'}</option>
+            <option value="">
+              {visionSummary
+                ? prescriptionChoiceLabel(draft.title, visionSummary)
+                : 'Earlier Prescriptions'}
+            </option>
             {billLines.map((entry) => (
               <option key={`BILL-${entry.lineId}`} value={`BILL-${entry.lineId}`}>
-                {entry.productName} · {prescriptionLabel(entry.prescription) ?? 'Prescription'} ·
-                This bill
+                {prescriptionChoiceLabel(
+                  entry.prescription.title,
+                  `${entry.productName} · ${prescriptionLabel(entry.prescription) ?? 'Prescription'} · This bill`,
+                )}
               </option>
             ))}
             {saved.map((record) => (
               <option key={`${record.source}-${record.id}`} value={`${record.source}-${record.id}`}>
-                {record.summary} · {record.source === 'LAB_JOB' ? 'Lab job' : 'Saved'} ·{' '}
-                {formatShortDate(record.createdAt)}
+                {prescriptionChoiceLabel(
+                  record.title,
+                  `${record.summary} · ${record.source === 'LAB_JOB' ? 'Lab job' : 'Saved'} · ${formatShortDate(record.createdAt)}`,
+                )}
               </option>
             ))}
           </select>
@@ -254,9 +271,12 @@ function sameReading(record: SavedPrescription, value: ItemPrescription): boolea
     record.left.sphere === value.left.sphere &&
     record.left.cylinder === value.left.cylinder &&
     record.left.axis === value.left.axis &&
+    resolvedEyeAdd(record.right, record.add) === resolvedEyeAdd(value.right, value.add) &&
+    resolvedEyeAdd(record.left, record.add) === resolvedEyeAdd(value.left, value.add) &&
     record.add === value.add &&
     record.pd === value.pd &&
-    record.notes === value.notes
+    record.notes === value.notes &&
+    (record.title ?? '') === (value.title ?? '')
   );
 }
 

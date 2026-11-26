@@ -13,7 +13,7 @@ import {
   updateCustomerPrescription,
   saveCustomerPrescription,
 } from './customers-api';
-import { emptyItemPrescription } from './item-prescription';
+import { emptyItemPrescription, prescriptionChoiceLabel } from './item-prescription';
 import { PrescriptionFields } from './PrescriptionFields';
 import { formatShortDate } from './dashboard-format';
 
@@ -122,8 +122,10 @@ export function CustomerVision({ customerId }: { customerId: string }): React.Re
           >
             {rows.map((row, index) => (
               <option key={row.id} value={row.id}>
-                {index === 0 ? 'Latest' : 'Earlier'} · {row.summary || 'Prescription'} ·{' '}
-                {formatShortDate(row.createdAt)}
+                {prescriptionChoiceLabel(
+                  row.title,
+                  `${index === 0 ? 'Latest' : 'Earlier'} · ${row.summary || 'Prescription'} · ${formatShortDate(row.createdAt)}`,
+                )}
               </option>
             ))}
           </select>
@@ -158,5 +160,12 @@ export function CustomerVision({ customerId }: { customerId: string }): React.Re
 }
 
 function readingOf(row: SavedPrescription): PrescriptionReading {
-  return { right: row.right, left: row.left, add: row.add, pd: row.pd, notes: row.notes };
+  return {
+    title: row.title ?? '',
+    right: row.right,
+    left: row.left,
+    add: row.add,
+    pd: row.pd.trim() || '62',
+    notes: row.notes,
+  };
 }

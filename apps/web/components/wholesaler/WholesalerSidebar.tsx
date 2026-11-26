@@ -29,7 +29,7 @@ export function WholesalerSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col bg-navy text-white md:flex lg:w-[200px]">
+    <aside className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col bg-navy text-white md:flex lg:w-[280px]">
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-4 lg:px-4">
         <span
           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-action text-white"

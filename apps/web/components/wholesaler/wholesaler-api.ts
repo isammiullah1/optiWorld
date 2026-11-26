@@ -7,6 +7,7 @@ import {
   WholesalerConnectionListsSchema,
   WholesalerDashboardSchema,
   WholesalerListingProfileSchema,
+  WholesalerLedgerSchema,
   WholesalerOrderActivitySchema,
   WholesalerOrderDetailSchema,
   WholesalerOrderRowSchema,
@@ -23,6 +24,7 @@ import {
   type WholesalerConnectionLists,
   type WholesalerDashboard,
   type WholesalerListingProfile,
+  type WholesalerLedger,
   type WholesalerOrderActivity,
   type OrderStatus,
   type WholesalerOrderDetail,
@@ -72,6 +74,14 @@ const ConnectionResponseSchema = z.object({
 const QuotesResponseSchema = z.object({
   success: z.literal(true),
   data: z.array(QuoteRequestSchema),
+});
+const LedgerResponseSchema = z.object({
+  success: z.literal(true),
+  data: WholesalerLedgerSchema,
+});
+const CreatedOrderResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({ id: z.string().uuid() }),
 });
 const OrdersResponseSchema = z.object({
   success: z.literal(true),
@@ -155,6 +165,44 @@ export async function loadConnections(accessToken: string): Promise<WholesalerCo
     '/api/v1/wholesaler/connections',
     accessToken,
     ConnectionsResponseSchema,
+  );
+  return response.data;
+}
+
+export async function createWholesalerOrder(
+  accessToken: string,
+  input: {
+    retailerOrgId: string;
+    settlement: 'CASH' | 'CREDIT';
+    notes?: string;
+    items: Array<{ catalogProductId: string; quantity: number }>;
+  },
+): Promise<{ id: string }> {
+  const response = await sendJson(
+    '/api/v1/wholesaler/orders',
+    accessToken,
+    'POST',
+    input,
+    CreatedOrderResponseSchema,
+  );
+  return response.data;
+}
+
+export async function loadWholesalerLedger(accessToken: string): Promise<WholesalerLedger> {
+  const response = await getJson('/api/v1/wholesaler/ledger', accessToken, LedgerResponseSchema);
+  return response.data;
+}
+
+export async function receiveRetailerCredit(
+  accessToken: string,
+  input: { retailerOrgId: string; amount: string; notes?: string },
+): Promise<WholesalerLedger> {
+  const response = await sendJson(
+    '/api/v1/wholesaler/ledger/payments',
+    accessToken,
+    'POST',
+    input,
+    LedgerResponseSchema,
   );
   return response.data;
 }

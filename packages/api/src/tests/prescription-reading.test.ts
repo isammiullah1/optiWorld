@@ -44,7 +44,8 @@ describe('prescription standards', () => {
     assert.match(issues['right.cylinder'] ?? '', /0\.25/);
     assert.match(issues['left.sphere'] ?? '', /sphere/);
     assert.match(issues['left.cylinder'] ?? '', /cylinder/);
-    assert.equal(issues.add !== undefined, true);
+    assert.equal(issues['right.add'] !== undefined, true);
+    assert.equal(issues['left.add'] !== undefined, true);
     assert.equal(issues.pd !== undefined, true);
     assert.equal(
       ItemPrescriptionSchema.safeParse({

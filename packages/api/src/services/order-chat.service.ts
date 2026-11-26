@@ -458,7 +458,18 @@ export async function confirmOrder(
   orderId: string,
 ): Promise<ChatMutation<{ orderId: string; lockedAt: string }>> {
   const order = await requireOrderParty(auth, orderId);
-  assertWholesalerParty(auth, order);
+  const openedByWholesaler = order.settlement === 'CASH' || order.settlement === 'CREDIT';
+  if (openedByWholesaler) {
+    if (auth.orgType !== 'RETAILER' || auth.orgId !== order.retailerOrgId) {
+      throw new AppError(
+        403,
+        'FORBIDDEN',
+        'The retailer confirms an order opened by the wholesaler',
+      );
+    }
+  } else {
+    assertWholesalerParty(auth, order);
+  }
   if (order.lockedAt || order.status !== 'PENDING') {
     throw new AppError(409, 'ALREADY_CONFIRMED', 'This order is already confirmed');
   }
@@ -500,6 +511,19 @@ export async function confirmOrder(
       include: { senderUser: { select: { name: true } } },
     });
   });
+
+  if (openedByWholesaler) {
+    await prisma.alert.create({
+      data: {
+        orgId: order.wholesalerOrgId,
+        type: 'ORDER_CONFIRMED',
+        title: 'Order confirmed',
+        body: 'The retailer confirmed the order you opened.',
+        relatedEntityId: orderId,
+        relatedEntityType: 'Order',
+      },
+    });
+  }
 
   const result = { orderId, lockedAt: lockedAt.toISOString() };
   return {

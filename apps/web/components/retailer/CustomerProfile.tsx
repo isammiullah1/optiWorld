@@ -5,6 +5,8 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import { shopPagePath, isShopOwnerRole } from '@/lib/shop-scope';
+
 import { WhatsAppLabel } from '@/components/WhatsAppMark';
 import { CustomerVision } from './CustomerVision';
 import { loadCustomerLedger, loadCustomerProfile, recordCustomerPayment } from './customers-api';
@@ -22,7 +24,7 @@ type Tab = (typeof TABS)[number];
 export function CustomerProfile({ customerId }: { customerId: string }): React.ReactElement {
   const { data: session } = useSession();
   const token = session?.accessToken;
-  const isOwner = session?.user.role === 'OWNER';
+  const isOwner = isShopOwnerRole(session?.user.role);
   const [profile, setProfile] = useState<CustomerProfileData | null>(null);
   const [ledger, setLedger] = useState<CustomerLedger | null>(null);
   const [tab, setTab] = useState<Tab>('Overview');
@@ -108,7 +110,7 @@ export function CustomerProfile({ customerId }: { customerId: string }): React.R
           </p>
         </div>
         <Link
-          href={`/retailer/billing/new?customer=${profile.id}`}
+          href={shopPagePath(`/retailer/billing/new?customer=${profile.id}`)}
           className="min-h-[44px] rounded-lg bg-action px-4 py-2 text-sm font-medium text-white"
         >
           New invoice
@@ -232,7 +234,10 @@ function Invoices({ profile }: { profile: CustomerProfileData }): React.ReactEle
           {profile.invoices.map((invoice) => (
             <tr key={invoice.id} className="border-b border-line last:border-0 hover:bg-canvas">
               <td className="px-3 py-3 text-sm">
-                <Link href={`/retailer/billing/${invoice.id}`} className="text-action">
+                <Link
+                  href={shopPagePath(`/retailer/billing/${invoice.id}`)}
+                  className="text-action"
+                >
                   #{invoice.invoiceNumber}
                 </Link>
               </td>

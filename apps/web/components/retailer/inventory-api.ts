@@ -19,6 +19,8 @@ import {
 } from '@optiworld/shared';
 import { z } from 'zod';
 
+import { shopApiPath } from '@/lib/shop-scope';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const ListResponseSchema = z.object({
@@ -27,6 +29,7 @@ const ListResponseSchema = z.object({
     rows: z.array(InventoryBatchSchema),
     categories: z.array(z.string()),
     categoryRules: z.array(z.object({ name: z.string(), prescriptionRequired: z.boolean() })),
+    stockOnHand: z.number().int().nonnegative().nullable().optional(),
   }),
   meta: InventoryListSchema.shape.meta,
 });
@@ -45,6 +48,7 @@ export async function loadInventory(
   rows: InventoryBatchRecord[];
   categories: string[];
   categoryRules: InventoryCategoryRule[];
+  stockOnHand: number | null;
   total: number;
 }> {
   const params = new URLSearchParams({
@@ -89,6 +93,7 @@ export async function loadInventory(
     rows: response.data.rows,
     categories: response.data.categories,
     categoryRules: response.data.categoryRules,
+    stockOnHand: response.data.stockOnHand ?? null,
     total: response.meta.total,
   };
 }
@@ -112,11 +117,14 @@ export async function deleteInventoryBatch(
   batchId: string,
   reason: string,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/v1/retailer/inventory/${batchId}`, {
-    method: 'DELETE',
-    headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ reason }),
-  });
+  const response = await fetch(
+    `${API_BASE}${shopApiPath(`/api/v1/retailer/inventory/${batchId}`)}`,
+    {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    },
+  );
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(readMessage(payload));
@@ -226,7 +234,7 @@ export async function uploadBillLogo(
 }
 
 export async function removeBillLogo(accessToken: string): Promise<RetailerSettings> {
-  const response = await fetch(`${API_BASE}/api/v1/retailer/bill-logo`, {
+  const response = await fetch(`${API_BASE}${shopApiPath('/api/v1/retailer/bill-logo')}`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${accessToken}` },
   });
@@ -235,7 +243,7 @@ export async function removeBillLogo(accessToken: string): Promise<RetailerSetti
 }
 
 async function getJson<T>(path: string, accessToken: string, schema: z.ZodType<T>): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
   return read(response, schema);
@@ -248,7 +256,7 @@ async function sendJson<T>(
   body: unknown,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     method,
     headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),

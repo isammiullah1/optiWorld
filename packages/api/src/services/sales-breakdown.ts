@@ -155,7 +155,7 @@ export function salesSections(
 
   return {
     dailySummary: [...days.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => right.localeCompare(left))
       .map(([date, value]) => ({
         date,
         invoiceCount: value.invoiceCount,

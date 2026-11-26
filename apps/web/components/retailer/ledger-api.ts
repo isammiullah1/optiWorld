@@ -110,11 +110,12 @@ export async function receiveCustomerCredit(
 export async function sendPaymentReminders(
   accessToken: string,
   customerIds: string[],
+  note?: string,
 ): Promise<ReminderSendResult> {
   const response = await sendJson(
     '/api/v1/whatsapp/send-payment-reminder',
     accessToken,
-    { customerIds },
+    { customerIds, note },
     SendResponseSchema,
   );
   return response.data;

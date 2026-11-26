@@ -46,6 +46,7 @@ type OrderChatProps = {
   initialStatus: string;
   initialTotal: string | null;
   initialItems: readonly ChatItem[];
+  awaitingRetailerConfirm?: boolean;
   onOrderChanged?: () => void;
 };
 
@@ -59,6 +60,7 @@ export function OrderChat({
   initialStatus,
   initialTotal,
   initialItems,
+  awaitingRetailerConfirm = false,
   onOrderChanged,
 }: OrderChatProps): React.ReactElement {
   const { data: session } = useSession();
@@ -403,7 +405,7 @@ export function OrderChat({
   }
 
   return (
-    <section className="flex h-[min(720px,calc(100vh-8rem))] flex-col rounded-xl border border-line bg-white">
+    <section className="flex h-[min(720px,calc(100vh-8rem))] flex-col rounded-xl border border-action-soft bg-white">
       <header className="border-b border-line px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-md font-semibold text-ink">Order chat — #{reference}</h2>
@@ -532,6 +534,10 @@ export function OrderChat({
               <Lock className="h-4 w-4" aria-hidden="true" />
               Order locked
             </button>
+          ) : awaitingRetailerConfirm ? (
+            <p className="inline-flex items-center rounded-lg bg-amber-soft px-3 py-2 text-sm text-amber">
+              Waiting for the retailer to confirm
+            </p>
           ) : (
             <button
               type="button"

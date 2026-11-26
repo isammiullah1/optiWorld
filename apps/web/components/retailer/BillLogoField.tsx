@@ -1,5 +1,6 @@
 'use client';
 
+import { ImagePlus, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 const MAX_LOGO_BYTES = 1_048_576;
@@ -23,7 +24,6 @@ export function BillLogoField({
 
   return (
     <div className="grid gap-2">
-      <span className="text-sm text-ink2">Logo</span>
       <div className="flex flex-wrap items-center gap-2">
         <input
           ref={inputRef}
@@ -66,8 +66,9 @@ export function BillLogoField({
           type="button"
           disabled={disabled || busy}
           onClick={() => inputRef.current?.click()}
-          className="min-h-[44px] rounded-lg border border-line bg-white px-4 text-sm text-ink2 disabled:bg-canvas"
+          className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm text-ink2 disabled:bg-canvas"
         >
+          <ImagePlus size={16} className="text-action" aria-hidden="true" />
           {busy ? 'Saving logo…' : logoUrl ? 'Replace logo' : 'Upload logo'}
         </button>
         {logoUrl ? (
@@ -82,15 +83,13 @@ export function BillLogoField({
                 );
               });
             }}
-            className="min-h-[44px] rounded-lg px-3 text-sm text-danger disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-danger disabled:opacity-50"
           >
+            <Trash2 size={16} aria-hidden="true" />
             Remove logo
           </button>
         ) : null}
       </div>
-      <p className="text-xs text-ink3">
-        PNG, JPG, or WebP, under 1 MB. It replaces the initials on the bill.
-      </p>
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}

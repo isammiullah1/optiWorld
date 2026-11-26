@@ -25,6 +25,7 @@ export const WholesalerOrderRowSchema = z.object({
   itemsSummary: z.string(),
   totalValue: money.nullable(),
   status: z.enum(ORDER_STATUSES),
+  settlement: z.enum(['CASH', 'CREDIT']).nullable(),
   createdAt: z.string().datetime(),
   isNew: z.boolean(),
   hasUnread: z.boolean(),
@@ -66,6 +67,7 @@ export const WholesalerOrderDetailSchema = z.object({
   id: uuid,
   reference: z.string(),
   status: z.enum(ORDER_STATUSES),
+  openedByWholesaler: z.boolean(),
   lockedAt: z.string().datetime().nullable(),
   notes: z.string().nullable(),
   createdAt: z.string().datetime(),
@@ -277,3 +279,53 @@ export const WholesalerCatalogActivitySchema = z.object({
 });
 
 export type WholesalerCatalogActivity = z.infer<typeof WholesalerCatalogActivitySchema>;
+
+export const CreateWholesalerOrderSchema = z
+  .object({
+    retailerOrgId: uuid,
+    settlement: z.enum(['CASH', 'CREDIT']),
+    notes: z.string().trim().max(2_000).optional(),
+    items: z
+      .array(
+        z.object({
+          catalogProductId: uuid,
+          quantity: z.number().int().positive().max(10_000),
+        }),
+      )
+      .min(1)
+      .max(50),
+  })
+  .refine(
+    (input) =>
+      new Set(input.items.map((item) => item.catalogProductId)).size === input.items.length,
+    { message: 'Each product can only be added once', path: ['items'] },
+  );
+
+export type CreateWholesalerOrderRequest = z.infer<typeof CreateWholesalerOrderSchema>;
+
+export const WholesalerLedgerRowSchema = z.object({
+  retailerOrgId: uuid,
+  retailerName: z.string(),
+  city: z.string().nullable(),
+  phone: z.string().nullable(),
+  cashReceived: money,
+  creditOutstanding: money,
+  openCreditOrders: z.number().int().nonnegative(),
+});
+
+export const WholesalerLedgerSchema = z.object({
+  cashReceived: money,
+  creditOutstanding: money,
+  retailersWithDues: z.number().int().nonnegative(),
+  rows: z.array(WholesalerLedgerRowSchema),
+});
+
+export type WholesalerLedger = z.infer<typeof WholesalerLedgerSchema>;
+
+export const ReceiveRetailerCreditSchema = z.object({
+  retailerOrgId: uuid,
+  amount: money.refine((value) => Number(value) > 0, 'Enter an amount greater than zero'),
+  notes: z.string().trim().max(500).optional(),
+});
+
+export type ReceiveRetailerCreditRequest = z.infer<typeof ReceiveRetailerCreditSchema>;

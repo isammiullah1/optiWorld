@@ -19,6 +19,7 @@ const REQUEST_ACTIONS = [
 type EyeReading = { sphere: string; cylinder: string; axis: string };
 
 type StoredPrescription = {
+  title: string;
   right: EyeReading;
   left: EyeReading;
   add: string;
@@ -248,6 +249,7 @@ export async function respondToShopRequest(
         where: { id: job.id },
         data: {
           prescription: {
+            title: request.prescription.title,
             right: request.prescription.right,
             left: request.prescription.left,
             add: request.prescription.add,
@@ -261,6 +263,7 @@ export async function respondToShopRequest(
           where: { id: request.prescription.invoiceItemId, invoice: { orgId: retailerOrgId } },
           data: {
             prescription: {
+              title: request.prescription.title,
               right: request.prescription.right,
               left: request.prescription.left,
               add: request.prescription.add,
@@ -415,6 +418,7 @@ function requestMetadata(input: StoredRequest): {
   summary: string;
   reason: string;
   prescription?: {
+    title: string;
     right: EyeReading;
     left: EyeReading;
     add: string;
@@ -461,6 +465,7 @@ function readPrescription(value: unknown): StoredPrescription | null {
     return null;
   }
   return {
+    title: typeof record.title === 'string' ? record.title.trim().slice(0, 40) : '',
     right,
     left,
     add: typeof record.add === 'string' ? record.add : '',

@@ -6,6 +6,7 @@ import type {
   WholesalerConnectionLists,
   WholesalerRetailerConnection,
 } from '@optiworld/shared';
+import { Ban, Clock, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
@@ -31,9 +32,38 @@ import {
   searchRetailerShops,
   updateVisibility,
 } from './wholesaler-api';
+import {
+  AMBER_CARD,
+  DANGER_CARD,
+  headCellClass,
+  headRowClass,
+  ListPager,
+  pageWindow,
+  TEAL_CARD,
+  type PageSize,
+} from './wholesaler-surface';
 
-const TABS = ['Connected', 'Pending', 'Declined'] as const;
-type Tab = (typeof TABS)[number];
+const TABS = [
+  {
+    id: 'Connected',
+    icon: Users,
+    idle: TEAL_CARD,
+    active: 'border-teal bg-teal text-white',
+  },
+  {
+    id: 'Pending',
+    icon: Clock,
+    idle: AMBER_CARD,
+    active: 'border-amber bg-amber text-white',
+  },
+  {
+    id: 'Declined',
+    icon: Ban,
+    idle: DANGER_CARD,
+    active: 'border-danger bg-danger text-white',
+  },
+] as const;
+type Tab = (typeof TABS)[number]['id'];
 
 const VISIBILITY_OPTIONS: readonly { value: VisibilityMode; label: string }[] = [
   { value: 'FULL', label: 'Full catalog' },
@@ -56,6 +86,8 @@ export function RetailerConnections(): React.ReactElement {
   const [cancelling, setCancelling] = useState<WholesalerRetailerConnection | null>(null);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(10);
 
   const refresh = useCallback((): void => {
     const token = session?.accessToken;
@@ -75,6 +107,10 @@ export function RetailerConnections(): React.ReactElement {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, pageSize]);
 
   if (status === 'loading' || (status === 'authenticated' && !lists && !error)) {
     return (
@@ -99,6 +135,7 @@ export function RetailerConnections(): React.ReactElement {
 
   const rows =
     tab === 'Connected' ? lists.connected : tab === 'Pending' ? lists.pending : lists.declined;
+  const windowed = pageWindow(rows, page, pageSize);
 
   return (
     <div className="space-y-3">
@@ -120,7 +157,7 @@ export function RetailerConnections(): React.ReactElement {
         }}
       />
       {lists.outgoing.length > 0 ? (
-        <section className="rounded-xl border border-line bg-white p-4">
+        <section className={`rounded-xl border p-4 ${AMBER_CARD}`}>
           <h2 className="text-sm font-medium text-ink">Waiting for the shop</h2>
           <ul className="mt-2 grid gap-2">
             {lists.outgoing.map((row) => (
@@ -150,23 +187,24 @@ export function RetailerConnections(): React.ReactElement {
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Retailer connections">
         {TABS.map((item) => {
           const count =
-            item === 'Connected'
+            item.id === 'Connected'
               ? lists.connected.length
-              : item === 'Pending'
+              : item.id === 'Pending'
                 ? lists.pending.length
                 : lists.declined.length;
+          const Icon = item.icon;
+          const selected = tab === item.id;
           return (
             <button
-              key={item}
+              key={item.id}
               type="button"
               role="tab"
-              aria-selected={tab === item}
-              className={`min-h-11 rounded-full px-3 text-xs font-medium ${
-                tab === item ? 'bg-action text-white' : 'border border-line bg-white text-ink2'
-              }`}
-              onClick={() => setTab(item)}
+              aria-selected={selected}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium ${selected ? item.active : item.idle}`}
+              onClick={() => setTab(item.id)}
             >
-              {item} {count}
+              <Icon size={14} aria-hidden="true" />
+              {item.id} {count}
             </button>
           );
         })}
@@ -182,149 +220,157 @@ export function RetailerConnections(): React.ReactElement {
           <p className="mt-1 text-sm text-ink2">{emptyBody(tab)}</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-line bg-white">
-          <table className="w-full min-w-[760px] border-collapse text-left">
-            <thead>
-              <tr className="border-b border-line">
-                {(tab === 'Connected'
-                  ? ['Retailer', 'City', 'Visibility', 'Orders', 'Last order', 'Actions']
-                  : tab === 'Pending'
-                    ? ['Retailer', 'City', 'Requested', 'Actions']
-                    : ['Retailer', 'City', 'Declined', 'Actions']
-                ).map((heading) => (
-                  <th
-                    key={heading}
-                    className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink3"
-                  >
-                    {heading}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b border-line last:border-0 hover:bg-canvas">
-                  <td className="px-3 py-2 text-xs font-medium text-ink">
-                    <button
-                      type="button"
-                      className="min-h-11 text-left font-medium text-action"
-                      onClick={() => setProfile(row)}
-                    >
-                      {row.retailerName}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-ink2">{row.city ?? '—'}</td>
-                  {tab === 'Connected' ? (
-                    <>
-                      <td className="px-3 py-2">
-                        <VisibilityBadge mode={row.visibilityMode} />
-                      </td>
-                      <td className="px-3 py-2 text-xs text-ink">{row.orderCount}</td>
-                      <td className="px-3 py-2 text-xs text-ink2">
-                        {row.lastOrderAt ? formatRelativeTime(row.lastOrderAt) : 'No orders yet'}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <label className="sr-only" htmlFor={`visibility-${row.id}`}>
-                            Visibility for {row.retailerName}
-                          </label>
-                          <select
-                            id={`visibility-${row.id}`}
-                            className="min-h-11 rounded-lg border border-line bg-white px-2 text-xs text-ink"
-                            value={row.visibilityMode}
-                            onChange={(event) => {
+        <div className="overflow-hidden rounded-xl border border-action-soft bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] border-collapse text-left">
+              <thead>
+                <tr className={headRowClass}>
+                  {(tab === 'Connected'
+                    ? ['Retailer', 'City', 'Visibility', 'Orders', 'Last order', 'Actions']
+                    : tab === 'Pending'
+                      ? ['Retailer', 'City', 'Requested', 'Actions']
+                      : ['Retailer', 'City', 'Declined', 'Actions']
+                  ).map((heading) => (
+                    <th key={heading} className={headCellClass}>
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {windowed.visible.map((row) => (
+                  <tr key={row.id} className="border-b border-line last:border-0 hover:bg-canvas">
+                    <td className="px-3 py-2 text-xs font-medium text-ink">
+                      <button
+                        type="button"
+                        className="min-h-11 text-left font-medium text-action"
+                        onClick={() => setProfile(row)}
+                      >
+                        {row.retailerName}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-ink2">{row.city ?? '—'}</td>
+                    {tab === 'Connected' ? (
+                      <>
+                        <td className="px-3 py-2">
+                          <VisibilityBadge mode={row.visibilityMode} />
+                        </td>
+                        <td className="px-3 py-2 text-xs text-ink">{row.orderCount}</td>
+                        <td className="px-3 py-2 text-xs text-ink2">
+                          {row.lastOrderAt ? formatRelativeTime(row.lastOrderAt) : 'No orders yet'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="sr-only" htmlFor={`visibility-${row.id}`}>
+                              Visibility for {row.retailerName}
+                            </label>
+                            <select
+                              id={`visibility-${row.id}`}
+                              className="min-h-11 rounded-lg border border-line bg-white px-2 text-xs text-ink"
+                              value={row.visibilityMode}
+                              onChange={(event) => {
+                                const token = session?.accessToken;
+                                const mode = event.target.value as VisibilityMode;
+                                if (!token) {
+                                  return;
+                                }
+                                void updateVisibility(token, row.id, mode)
+                                  .then(refresh)
+                                  .catch((caught: unknown) => {
+                                    setError(
+                                      caught instanceof Error
+                                        ? caught.message
+                                        : 'Could not update visibility',
+                                    );
+                                  });
+                              }}
+                            >
+                              {VISIBILITY_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <Link
+                              href="/wholesaler/price-control"
+                              className="inline-flex min-h-11 items-center text-xs font-medium text-action"
+                            >
+                              Manage
+                            </Link>
+                            <DisconnectButton
+                              onClick={() => {
+                                setDisconnectError(null);
+                                setDisconnecting(row);
+                              }}
+                            />
+                          </div>
+                        </td>
+                      </>
+                    ) : null}
+                    {tab === 'Pending' ? (
+                      <>
+                        <td className="px-3 py-2 text-xs text-ink2">
+                          {formatShortDate(row.requestedAt)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            className="min-h-11 rounded-lg bg-action px-3 text-xs font-medium text-white"
+                            onClick={() => setApproving(row)}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            className="ml-2 min-h-11 rounded-lg border border-line px-3 text-xs text-danger"
+                            onClick={() => {
                               const token = session?.accessToken;
-                              const mode = event.target.value as VisibilityMode;
                               if (!token) {
                                 return;
                               }
-                              void updateVisibility(token, row.id, mode)
-                                .then(refresh)
+                              void declineConnection(token, row.id)
+                                .then(() => {
+                                  setTab('Declined');
+                                  refresh();
+                                })
                                 .catch((caught: unknown) => {
                                   setError(
                                     caught instanceof Error
                                       ? caught.message
-                                      : 'Could not update visibility',
+                                      : 'Could not decline this request',
                                   );
                                 });
                             }}
                           >
-                            {VISIBILITY_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <Link
-                            href="/wholesaler/price-control"
-                            className="inline-flex min-h-11 items-center text-xs font-medium text-action"
-                          >
-                            Manage
-                          </Link>
-                          <DisconnectButton
-                            onClick={() => {
-                              setDisconnectError(null);
-                              setDisconnecting(row);
-                            }}
-                          />
-                        </div>
-                      </td>
-                    </>
-                  ) : null}
-                  {tab === 'Pending' ? (
-                    <>
-                      <td className="px-3 py-2 text-xs text-ink2">
-                        {formatShortDate(row.requestedAt)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          className="min-h-11 rounded-lg bg-action px-3 text-xs font-medium text-white"
-                          onClick={() => setApproving(row)}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="ml-2 min-h-11 rounded-lg border border-line px-3 text-xs text-danger"
-                          onClick={() => {
-                            const token = session?.accessToken;
-                            if (!token) {
-                              return;
-                            }
-                            void declineConnection(token, row.id)
-                              .then(() => {
-                                setTab('Declined');
-                                refresh();
-                              })
-                              .catch((caught: unknown) => {
-                                setError(
-                                  caught instanceof Error
-                                    ? caught.message
-                                    : 'Could not decline this request',
-                                );
-                              });
-                          }}
-                        >
-                          Decline
-                        </button>
-                      </td>
-                    </>
-                  ) : null}
-                  {tab === 'Declined' ? (
-                    <>
-                      <td className="px-3 py-2 text-xs text-ink2">
-                        {formatShortDate(row.updatedAt)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <SendRequestButton onClick={() => setProfile(row)} />
-                      </td>
-                    </>
-                  ) : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                            Decline
+                          </button>
+                        </td>
+                      </>
+                    ) : null}
+                    {tab === 'Declined' ? (
+                      <>
+                        <td className="px-3 py-2 text-xs text-ink2">
+                          {formatShortDate(row.updatedAt)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <SendRequestButton onClick={() => setProfile(row)} />
+                        </td>
+                      </>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ListPager
+            total={rows.length}
+            shown={windowed.visible.length}
+            page={windowed.current}
+            pageCount={windowed.pageCount}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={setPageSize}
+          />
         </div>
       )}
       {profile ? (

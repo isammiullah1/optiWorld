@@ -36,7 +36,12 @@ export function createInventoryController() {
       const data = await listInventory(requireSession(req), query);
       res.status(200).json({
         success: true,
-        data: { rows: data.rows, categories: data.categories, categoryRules: data.categoryRules },
+        data: {
+          rows: data.rows,
+          categories: data.categories,
+          categoryRules: data.categoryRules,
+          stockOnHand: data.stockOnHand,
+        },
         meta: data.meta,
       });
     }),

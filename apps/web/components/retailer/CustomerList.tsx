@@ -6,6 +6,8 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import { shopPagePath } from '@/lib/shop-scope';
+
 import { CustomerDrawer, type CustomerFormValues } from './CustomerDrawer';
 import {
   createCustomerRecord,
@@ -494,7 +496,7 @@ function CustomerRow({
       <tr className="border-b border-line last:border-0 hover:bg-canvas">
         <td className="px-3 py-3 text-sm font-medium">
           <Link
-            href={`/retailer/customers/${row.id}`}
+            href={shopPagePath(`/retailer/customers/${row.id}`)}
             className="inline-flex items-center gap-1 text-action"
           >
             <GenderMark gender={row.gender} />
@@ -521,14 +523,14 @@ function CustomerRow({
         <td className="px-3 py-3">
           <div className="flex flex-wrap items-center gap-1">
             <Link
-              href={`/retailer/customers/${row.id}`}
+              href={shopPagePath(`/retailer/customers/${row.id}`)}
               className="inline-flex min-h-11 items-center gap-1 rounded-lg px-1 text-xs font-medium text-action"
             >
               <Eye size={14} aria-hidden="true" />
               View
             </Link>
             <Link
-              href={`/retailer/billing/new?customer=${row.id}`}
+              href={shopPagePath(`/retailer/billing/new?customer=${row.id}`)}
               className="inline-flex min-h-11 items-center gap-1 rounded-lg px-1 text-xs font-medium text-teal"
             >
               <Plus size={14} aria-hidden="true" />

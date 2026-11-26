@@ -1,7 +1,7 @@
 'use client';
 
 import type { CatalogProduct, WholesalerCatalog } from '@optiworld/shared';
-import { Search, ShoppingCart } from 'lucide-react';
+import { Building2, Package, Search, ShoppingCart } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
@@ -114,28 +114,35 @@ export function WholesalerCatalogView({
   }
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-      <div className="grid gap-4">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold text-ink">
-              {catalog?.wholesaler.name ?? 'Catalog'}
-            </h1>
-            <p className="text-sm text-ink2">{catalog?.wholesaler.city ?? 'City not set'}</p>
-            {catalog?.wholesaler.phone ? (
-              <a className="text-sm text-action" href={`tel:${catalog.wholesaler.phone}`}>
-                {catalog.wholesaler.phone}
-              </a>
-            ) : (
-              <p className="text-sm text-ink3">No contact number</p>
-            )}
-            {catalog?.wholesaler.whatsappNumber ? (
-              <p className="text-sm text-ink2">
-                <WhatsAppLabel>{catalog.wholesaler.whatsappNumber}</WhatsAppLabel>
-              </p>
-            ) : null}
-            <p className="mt-3 text-sm text-ink3">About us</p>
-            <p className="mt-1 max-w-xl whitespace-pre-wrap text-sm text-ink">
+    <div className="grid gap-4">
+      <section className="rounded-xl border-2 border-navy bg-[linear-gradient(165deg,color-mix(in_srgb,var(--ow-navy)_10%,white)_0%,white_55%,var(--ow-bg)_100%)] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white text-navy">
+              <Building2 size={18} aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold text-ink">
+                {catalog?.wholesaler.name ?? 'Catalog'}
+              </h1>
+              <p className="text-sm text-ink2">{catalog?.wholesaler.city ?? 'City not set'}</p>
+              {catalog?.wholesaler.phone ? (
+                <a className="text-sm text-action" href={`tel:${catalog.wholesaler.phone}`}>
+                  {catalog.wholesaler.phone}
+                </a>
+              ) : (
+                <p className="text-sm text-ink3">No contact number</p>
+              )}
+              {catalog?.wholesaler.whatsappNumber ? (
+                <p className="text-sm text-ink2">
+                  <WhatsAppLabel>{catalog.wholesaler.whatsappNumber}</WhatsAppLabel>
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="min-w-[16rem] flex-1 rounded-lg bg-white/80 p-3 sm:max-w-md">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink3">About us</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-ink">
               {catalog?.wholesaler.listingProfileNotes?.trim() || '—'}
             </p>
           </div>
@@ -144,22 +151,33 @@ export function WholesalerCatalogView({
             onClick={() =>
               document.getElementById('order-builder')?.scrollIntoView({ behavior: 'smooth' })
             }
-            className="min-h-[44px] rounded-lg bg-action px-4 text-sm font-medium text-white"
+            className="min-h-[44px] rounded-lg bg-action px-4 text-sm font-medium text-white lg:hidden"
           >
             Place order
           </button>
-        </header>
-        {error ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
+        </div>
+      </section>
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(280px,2fr)]">
         {catalog === null && !error ? (
           <div className="h-40 animate-pulse rounded-xl bg-white" />
         ) : null}
         {catalog ? (
-          <section className="overflow-hidden rounded-xl border border-line bg-white">
-            <div className="grid gap-2 border-b border-line px-3 py-3">
+          <section className="min-w-0 overflow-hidden rounded-xl border-2 border-action bg-[linear-gradient(165deg,color-mix(in_srgb,var(--ow-blue)_26%,white)_0%,white_48%,var(--ow-blue-soft)_100%)]">
+            <div className="flex items-center gap-2 px-4 py-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-action-soft text-action">
+                <Package size={18} aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-md font-semibold text-ink">Catalog</h2>
+                <p className="text-xs text-ink2">Search a product, then add it to the order.</p>
+              </div>
+            </div>
+            <div className="grid gap-2 px-3 pb-3">
               <label className="grid gap-1 text-xs text-ink2">
                 Search catalog
                 <span className="flex h-11 items-center gap-2 rounded-lg border border-line bg-white px-3">
@@ -197,14 +215,22 @@ export function WholesalerCatalogView({
                 ))}
               </div>
             </div>
-            <div>
+            <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-line bg-white">
               <table className="w-full table-fixed border-collapse text-left">
                 <thead>
-                  <tr className="bg-navy text-left">
-                    {['Product', 'Code', 'Category', 'Price', ''].map((heading) => (
+                  <tr className="border-b border-line bg-action-soft text-left">
+                    {(
+                      [
+                        ['Product', ''],
+                        ['Code', 'w-24'],
+                        ['Category', 'w-28'],
+                        ['Price', 'w-36'],
+                        ['', 'w-14'],
+                      ] as const
+                    ).map(([heading, width]) => (
                       <th
                         key={heading || 'add'}
-                        className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-white"
+                        className={`px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink3 ${width}`}
                       >
                         {heading}
                       </th>
@@ -230,86 +256,86 @@ export function WholesalerCatalogView({
                   )}
                 </tbody>
               </table>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm text-ink2">
-              <p>
-                {visible.length} of {filtered.length}
-              </p>
-              <label className="inline-flex items-center gap-2">
-                Show
-                <select
-                  aria-label="Products per page"
-                  value={pageSize}
-                  onChange={(event) => {
-                    setPageSize(Number(event.target.value) as (typeof PAGE_SIZES)[number]);
-                    setPage(1);
-                  }}
-                  className="h-9 rounded-lg border border-line bg-white px-2 text-sm text-ink"
-                >
-                  {PAGE_SIZES.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(currentPage - 1)}
-                  className="min-h-11 rounded-lg border border-line px-3 text-sm disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <span>
-                  {currentPage} / {pageCount}
-                </span>
-                <button
-                  type="button"
-                  disabled={currentPage >= pageCount}
-                  onClick={() => setPage(currentPage + 1)}
-                  className="min-h-11 rounded-lg border border-line px-3 text-sm disabled:opacity-50"
-                >
-                  Next
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm text-ink2">
+                <p>
+                  {visible.length} of {filtered.length}
+                </p>
+                <label className="inline-flex items-center gap-2">
+                  Show
+                  <select
+                    aria-label="Products per page"
+                    value={pageSize}
+                    onChange={(event) => {
+                      setPageSize(Number(event.target.value) as (typeof PAGE_SIZES)[number]);
+                      setPage(1);
+                    }}
+                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm text-ink"
+                  >
+                    {PAGE_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage(currentPage - 1)}
+                    className="min-h-11 rounded-lg border border-line px-3 text-sm disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    {currentPage} / {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage >= pageCount}
+                    onClick={() => setPage(currentPage + 1)}
+                    className="min-h-11 rounded-lg border border-line px-3 text-sm disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             </div>
           </section>
         ) : null}
-      </div>
-      <OrderBuilder
-        lines={lines}
-        pricesVisible={catalog?.pricesVisible ?? false}
-        notes={notes}
-        busy={busy}
-        onNotes={setNotes}
-        onRemove={(id) => setLines((current) => current.filter((line) => line.id !== id))}
-        onQuantity={(id, quantity) =>
-          setLines((current) =>
-            current.map((line) => (line.id === id ? { ...line, quantity } : line)),
-          )
-        }
-        onSubmit={() => {
-          if (!token || !catalog || lines.length === 0) {
-            return;
+        <OrderBuilder
+          lines={lines}
+          pricesVisible={catalog?.pricesVisible ?? false}
+          notes={notes}
+          busy={busy}
+          onNotes={setNotes}
+          onRemove={(id) => setLines((current) => current.filter((line) => line.id !== id))}
+          onQuantity={(id, quantity) =>
+            setLines((current) =>
+              current.map((line) => (line.id === id ? { ...line, quantity } : line)),
+            )
           }
-          setBusy(true);
-          setError(null);
-          void submitRetailerOrder(token, {
-            wholesalerOrgId: catalog.wholesaler.id,
-            notes: notes.trim() || undefined,
-            items: lines.map((line) => ({ catalogProductId: line.id, quantity: line.quantity })),
-          })
-            .then((orderId) => router.push(`/retailer/orders/${orderId}`))
-            .catch((caught: unknown) => {
-              setError(
-                caught instanceof Error ? caught.message : 'The order could not be submitted',
-              );
-              setBusy(false);
-            });
-        }}
-      />
+          onSubmit={() => {
+            if (!token || !catalog || lines.length === 0) {
+              return;
+            }
+            setBusy(true);
+            setError(null);
+            void submitRetailerOrder(token, {
+              wholesalerOrgId: catalog.wholesaler.id,
+              notes: notes.trim() || undefined,
+              items: lines.map((line) => ({ catalogProductId: line.id, quantity: line.quantity })),
+            })
+              .then((orderId) => router.push(`/retailer/orders/${orderId}`))
+              .catch((caught: unknown) => {
+                setError(
+                  caught instanceof Error ? caught.message : 'The order could not be submitted',
+                );
+                setBusy(false);
+              });
+          }}
+        />
+      </div>
     </div>
   );
 }

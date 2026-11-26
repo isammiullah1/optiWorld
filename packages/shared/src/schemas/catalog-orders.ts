@@ -122,10 +122,12 @@ export const RetailerOrderListQuerySchema = z.object({
 export const RetailerOrderRowSchema = z.object({
   id: uuid,
   reference: z.string(),
+  wholesalerOrgId: uuid.optional(),
   wholesalerName: z.string(),
   itemCount: z.number().int().nonnegative(),
   products: z.array(z.string()).optional(),
   status: z.enum(ORDER_STATUSES),
+  openedByWholesaler: z.boolean(),
   createdAt: z.string(),
   totalValue: money.nullable(),
 });
@@ -134,6 +136,7 @@ export const RetailerOrderDetailSchema = z.object({
   id: uuid,
   reference: z.string(),
   status: z.enum(ORDER_STATUSES),
+  openedByWholesaler: z.boolean(),
   lockedAt: z.string().nullable(),
   notes: z.string().nullable(),
   createdAt: z.string(),

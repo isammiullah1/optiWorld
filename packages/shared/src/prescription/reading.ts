@@ -2,9 +2,11 @@ export type EyeReading = {
   sphere: string;
   cylinder: string;
   axis: string;
+  add?: string;
 };
 
 export type PrescriptionReading = {
+  title?: string;
   right: EyeReading;
   left: EyeReading;
   add: string;
@@ -16,10 +18,11 @@ export type PrescriptionIssueKey =
   | 'right.sphere'
   | 'right.cylinder'
   | 'right.axis'
+  | 'right.add'
   | 'left.sphere'
   | 'left.cylinder'
   | 'left.axis'
-  | 'add'
+  | 'left.add'
   | 'pd'
   | 'form';
 
@@ -27,6 +30,13 @@ const POWER = /^[+-]?\d{0,2}(\.\d{0,2})?$/;
 const ADD = /^\+?\d{0,1}(\.\d{0,2})?$/;
 const AXIS = /^\d{0,3}$/;
 const PD = /^\d{0,2}(\.\d?)?(\/\d{0,2}(\.\d?)?)?$/;
+
+export function resolvedEyeAdd(eye: { add?: string } | null | undefined, shared: string): string {
+  if (eye && typeof eye.add === 'string') {
+    return eye.add.trim();
+  }
+  return shared.trim();
+}
 
 export function acceptPrescriptionInput(
   field: 'sphere' | 'cylinder' | 'axis' | 'add' | 'pd',
@@ -52,9 +62,13 @@ export function prescriptionIssues(
   const left = eyeIssues('Left', value.left);
   assignEye(issues, 'right', right);
   assignEye(issues, 'left', left);
-  const addIssue = addIssueFor(value.add);
-  if (addIssue) {
-    issues.add = addIssue;
+  const rightAdd = addIssueFor(resolvedEyeAdd(value.right, value.add));
+  if (rightAdd) {
+    issues['right.add'] = rightAdd;
+  }
+  const leftAdd = addIssueFor(resolvedEyeAdd(value.left, value.add));
+  if (leftAdd) {
+    issues['left.add'] = leftAdd;
   }
   const pdIssue = pdIssueFor(value.pd);
   if (pdIssue) {

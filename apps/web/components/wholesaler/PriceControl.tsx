@@ -13,6 +13,7 @@ import {
   loadQuoteRequests,
   updateVisibility,
 } from './wholesaler-api';
+import { AMBER_CARD, BLUE_CARD, NAVY_CARD } from './wholesaler-surface';
 
 export function PriceControl(): React.ReactElement {
   const { data: session, status } = useSession();
@@ -73,7 +74,7 @@ export function PriceControl(): React.ReactElement {
             <article
               key={retailer.id}
               id={retailer.id}
-              className="rounded-xl border border-line bg-white p-4"
+              className={`rounded-xl border p-4 ${retailer.visibilityMode === 'FULL' ? BLUE_CARD : retailer.visibilityMode === 'PRICES_HIDDEN' ? AMBER_CARD : NAVY_CARD}`}
             >
               <h2 className="text-md font-semibold text-ink">{retailer.retailerName}</h2>
               <p className="text-xs text-ink3">{retailer.city ?? 'City not set'}</p>
@@ -117,8 +118,8 @@ export function PriceControl(): React.ReactElement {
           ))}
         </section>
       )}
-      <section className="rounded-xl border border-line bg-white">
-        <h2 className="border-b border-line px-4 py-3 text-md font-semibold text-ink">
+      <section className="overflow-hidden rounded-xl border border-navy bg-white">
+        <h2 className="bg-navy px-4 py-3 text-sm font-semibold uppercase tracking-wide text-white">
           Quote requests
         </h2>
         {quotes.length === 0 ? (

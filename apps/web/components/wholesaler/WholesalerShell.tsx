@@ -6,8 +6,10 @@ import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 
+import { useShopScope } from '@/lib/shop-scope';
 import { SignOutButton } from '@/components/auth/SignOutButton';
 
+import { BackNav } from '@/components/retailer/BackNav';
 import { WHOLESALER_ORDERS_CHANGED, loadWholesalerShell } from './wholesaler-api';
 import { WholesalerSidebar } from './WholesalerSidebar';
 import { isWholesalerNavActive, wholesalerPageTitle } from './wholesaler-nav';
@@ -23,6 +25,7 @@ export function WholesalerShell({
   role,
   children,
 }: WholesalerShellProps): React.ReactElement {
+  useShopScope('wholesaler');
   const pathname = usePathname();
   const { data: session } = useSession();
   const [orgName, setOrgName] = useState('');
@@ -55,11 +58,14 @@ export function WholesalerShell({
         orgName={orgName}
         pendingOrderCount={pendingOrderCount}
       />
-      <div className="md:pl-16 lg:pl-[200px]">
+      <div className="md:pl-16 lg:pl-[280px]">
         <header className="flex h-14 items-center border-b border-line bg-white px-3 md:px-5">
           <h1 className="text-lg font-semibold text-ink">{wholesalerPageTitle(pathname)}</h1>
         </header>
-        <div className="px-3 py-3 pb-24 md:px-5 md:py-4 md:pb-4">{children}</div>
+        <div className="px-3 py-3 pb-24 md:px-5 md:py-4 md:pb-4">
+          <BackNav />
+          {children}
+        </div>
       </div>
       <nav
         className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white md:hidden"
@@ -87,11 +93,46 @@ export function WholesalerShell({
       {moreOpen ? (
         <div className="fixed inset-x-0 bottom-14 z-20 border-t border-line bg-white p-3 md:hidden">
           <Link
-            href="/wholesaler/notifications"
+            href="/wholesaler/billing/new"
             className="block min-h-11 py-2 text-sm"
             onClick={() => setMoreOpen(false)}
           >
-            Notifications
+            POS
+          </Link>
+          <Link
+            href="/wholesaler/ledger"
+            className="block min-h-11 py-2 text-sm"
+            onClick={() => setMoreOpen(false)}
+          >
+            Ledger
+          </Link>
+          <Link
+            href="/wholesaler/sales"
+            className="block min-h-11 py-2 text-sm"
+            onClick={() => setMoreOpen(false)}
+          >
+            Sales
+          </Link>
+          <Link
+            href="/wholesaler/inventory"
+            className="block min-h-11 py-2 text-sm"
+            onClick={() => setMoreOpen(false)}
+          >
+            Inventory
+          </Link>
+          <Link
+            href="/wholesaler/customers"
+            className="block min-h-11 py-2 text-sm"
+            onClick={() => setMoreOpen(false)}
+          >
+            Customers
+          </Link>
+          <Link
+            href="/wholesaler/bill-pad"
+            className="block min-h-11 py-2 text-sm"
+            onClick={() => setMoreOpen(false)}
+          >
+            Bill pad
           </Link>
           <Link
             href="/wholesaler/notifications"

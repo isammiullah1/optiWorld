@@ -3,6 +3,7 @@ import type { AuthSessionUser, RetailerSettings } from '@optiworld/shared';
 
 import { decodeBillLogo, deleteBillLogo, writeBillLogo } from '../lib/bill-logo-store.js';
 import { AppError } from '../lib/errors.js';
+import { requiredShopOrgId } from '../lib/shop-org.js';
 import { getRetailerSettings } from './inventory.service.js';
 
 export async function saveBillLogo(
@@ -50,8 +51,5 @@ export async function clearBillLogo(auth: AuthSessionUser): Promise<RetailerSett
 }
 
 function requiredRetailerOrgId(auth: AuthSessionUser): string {
-  if (!auth.orgId || auth.orgType !== 'RETAILER') {
-    throw new AppError(403, 'FORBIDDEN', 'This action is only available to a retailer');
-  }
-  return auth.orgId;
+  return requiredShopOrgId(auth);
 }

@@ -39,12 +39,12 @@ export function createLedgerController() {
     }),
     sendReminders: asyncHandler(async (req: Request, res: Response) => {
       const input = SendRemindersSchema.parse(req.body ?? {});
-      const data = await sendPaymentReminders(requireSession(req), input.customerIds);
+      const data = await sendPaymentReminders(requireSession(req), input.customerIds, input.note);
       res.status(200).json({ success: true, data });
     }),
     sendWhatsApp: asyncHandler(async (req: Request, res: Response) => {
       const input = SendPaymentReminderSchema.parse(req.body);
-      const data = await sendPaymentReminders(requireSession(req), input.customerIds);
+      const data = await sendPaymentReminders(requireSession(req), input.customerIds, input.note);
       res.status(200).json({ success: true, data });
     }),
   };

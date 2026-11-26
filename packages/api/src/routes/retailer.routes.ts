@@ -122,6 +122,7 @@ export function createRetailerRouter(): Router {
   router.post('/invoices/:invoiceId/clear-credit', ...retailerOwner, billing, pos.clearCredit);
   router.delete('/invoices/:invoiceId', ...retailerOwner, billing, pos.removeInvoice);
   router.post('/invoices/:invoiceId/cancel', ...retailerOwner, billing, pos.cancelInvoice);
+  router.post('/invoices/:invoiceId/edit', ...retailerOwner, billing, pos.editSale);
   router.post('/invoices/:invoiceId/lab', ...retailerOwner, billing, pos.sendToLab);
   router.post('/invoices/:invoiceId/lab/unsend', ...retailerOwner, billing, pos.unsendLab);
   router.post('/invoices/:invoiceId/lab/cancel', ...retailerOwner, billing, pos.cancelLab);

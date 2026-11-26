@@ -197,9 +197,11 @@ export const EyeReadingSchema = z.object({
   sphere: z.string().trim().max(20),
   cylinder: z.string().trim().max(20),
   axis: z.string().trim().max(20),
+  add: z.string().trim().max(20).optional(),
 });
 
 const ItemPrescriptionObject = z.object({
+  title: z.string().trim().max(40).optional(),
   right: EyeReadingSchema,
   left: EyeReadingSchema,
   add: z.string().trim().max(20),

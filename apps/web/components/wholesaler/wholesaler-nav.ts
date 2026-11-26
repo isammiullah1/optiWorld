@@ -1,9 +1,15 @@
 import type { LucideIcon } from 'lucide-react';
 import {
+  Banknote,
   BarChart3,
   Bell,
+  BookOpen,
   ClipboardList,
+  Contact,
   LayoutDashboard,
+  Package,
+  Receipt,
+  ScrollText,
   SlidersHorizontal,
   Store,
   Tags,
@@ -14,7 +20,7 @@ export type WholesalerNavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
-  section: 'Overview' | 'Catalog' | 'Insights';
+  section: 'Overview' | 'Shop' | 'Catalog' | 'Insights';
   badge?: 'pending';
 };
 
@@ -28,6 +34,12 @@ export const WHOLESALER_NAV = [
     badge: 'pending',
   },
   { href: '/wholesaler/notifications', label: 'Notifications', icon: Bell, section: 'Overview' },
+  { href: '/wholesaler/billing/new', label: 'POS', icon: Receipt, section: 'Shop' },
+  { href: '/wholesaler/sales', label: 'Sales', icon: Banknote, section: 'Shop' },
+  { href: '/wholesaler/ledger', label: 'Ledger', icon: BookOpen, section: 'Shop' },
+  { href: '/wholesaler/inventory', label: 'Inventory', icon: Package, section: 'Shop' },
+  { href: '/wholesaler/customers', label: 'Customers', icon: Contact, section: 'Shop' },
+  { href: '/wholesaler/bill-pad', label: 'Bill pad', icon: ScrollText, section: 'Shop' },
   { href: '/wholesaler/catalog', label: 'Catalog', icon: Tags, section: 'Catalog' },
   { href: '/wholesaler/retailers', label: 'Retailers', icon: Users, section: 'Catalog' },
   {
@@ -40,9 +52,12 @@ export const WHOLESALER_NAV = [
   { href: '/wholesaler/profile', label: 'Profile', icon: Store, section: 'Insights' },
 ] as const satisfies readonly WholesalerNavItem[];
 
-export const WHOLESALER_SECTIONS = ['Overview', 'Catalog', 'Insights'] as const;
+export const WHOLESALER_SECTIONS = ['Overview', 'Shop', 'Catalog', 'Insights'] as const;
 
 export function isWholesalerNavActive(pathname: string, href: string): boolean {
+  if (href === '/wholesaler/billing/new') {
+    return pathname.startsWith('/wholesaler/billing');
+  }
   if (href === '/wholesaler/dashboard') {
     return pathname === href;
   }
@@ -52,6 +67,21 @@ export function isWholesalerNavActive(pathname: string, href: string): boolean {
 export function wholesalerPageTitle(pathname: string): string {
   if (pathname.startsWith('/wholesaler/orders/')) {
     return 'Order';
+  }
+  if (pathname.startsWith('/wholesaler/billing/new')) {
+    return 'POS';
+  }
+  if (pathname.includes('/receipt')) {
+    return 'Receipt';
+  }
+  if (pathname.startsWith('/wholesaler/billing/')) {
+    return 'Bill';
+  }
+  if (pathname.startsWith('/wholesaler/inventory/')) {
+    return 'Stock item';
+  }
+  if (pathname.startsWith('/wholesaler/customers/')) {
+    return 'Customer';
   }
   const match = WHOLESALER_NAV.find((item) => isWholesalerNavActive(pathname, item.href));
   return match?.label ?? 'Wholesaler';

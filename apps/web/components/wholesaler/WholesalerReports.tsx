@@ -1,6 +1,7 @@
 'use client';
 
 import type { WholesalerCatalogActivity, WholesalerOrderActivity } from '@optiworld/shared';
+import { Calendar, Check, Clock, PackageCheck } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -8,6 +9,18 @@ import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 
 import { formatShortDate } from '@/components/retailer/dashboard-format';
 
 import { downloadOrderHistory, loadCatalogActivity, loadOrderActivity } from './wholesaler-api';
+import {
+  AMBER_CARD,
+  BLUE_CARD,
+  headCellClass,
+  headRowClass,
+  ListPager,
+  MetricCard,
+  NAVY_CARD,
+  pageWindow,
+  TEAL_CARD,
+  type PageSize,
+} from './wholesaler-surface';
 
 const AMBER = '#D97C10';
 const BLUE = '#016795';
@@ -25,10 +38,16 @@ export function WholesalerReports(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [ready, setReady] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(10);
 
   useEffect(() => {
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, pageSize]);
 
   useEffect(() => {
     const token = session?.accessToken;
@@ -56,6 +75,7 @@ export function WholesalerReports(): React.ReactElement {
         { name: 'Delivered', count: activity.counts.delivered, fill: MUTED },
       ]
     : [];
+  const history = activity ? pageWindow(activity.orders, page, pageSize) : null;
 
   return (
     <div className="grid gap-4">
@@ -134,6 +154,36 @@ export function WholesalerReports(): React.ReactElement {
       ) : null}
       {activity ? (
         <>
+          <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Received"
+              value={String(activity.counts.received)}
+              card={AMBER_CARD}
+              mark="bg-amber-soft text-amber"
+              icon={Clock}
+            />
+            <MetricCard
+              label="Confirmed"
+              value={String(activity.counts.confirmed)}
+              card={BLUE_CARD}
+              mark="bg-action-soft text-action"
+              icon={Check}
+            />
+            <MetricCard
+              label="Dispatched"
+              value={String(activity.counts.dispatched)}
+              card={TEAL_CARD}
+              mark="bg-teal-soft text-teal"
+              icon={Calendar}
+            />
+            <MetricCard
+              label="Delivered"
+              value={String(activity.counts.delivered)}
+              card={NAVY_CARD}
+              mark="bg-white text-navy"
+              icon={PackageCheck}
+            />
+          </section>
           <ReportCard title="Order activity">
             {ready ? (
               <div className="h-56">
@@ -167,7 +217,7 @@ export function WholesalerReports(): React.ReactElement {
             <div className="mt-3 overflow-x-auto">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr>
+                  <tr className={headRowClass}>
                     {[
                       'Order #',
                       'Retailer',
@@ -178,10 +228,7 @@ export function WholesalerReports(): React.ReactElement {
                       'Dispatched',
                       'Delivered',
                     ].map((heading) => (
-                      <th
-                        key={heading}
-                        className="py-2 pr-3 text-xs font-medium uppercase tracking-wide text-ink3"
-                      >
+                      <th key={heading} className={headCellClass}>
                         {heading}
                       </th>
                     ))}
@@ -190,12 +237,12 @@ export function WholesalerReports(): React.ReactElement {
                 <tbody>
                   {activity.orders.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-sm text-ink2" colSpan={8}>
+                      <td className="px-3 py-3 text-sm text-ink2" colSpan={8}>
                         No orders were submitted in this range.
                       </td>
                     </tr>
                   ) : (
-                    activity.orders.map((order) => (
+                    history?.visible.map((order) => (
                       <tr key={order.id} className="border-t border-line">
                         <td className="py-2 pr-3 text-xs text-ink">#{order.reference}</td>
                         <td className="py-2 pr-3 text-xs text-ink">{order.retailerName}</td>
@@ -219,21 +266,27 @@ export function WholesalerReports(): React.ReactElement {
                 </tbody>
               </table>
             </div>
+            {history ? (
+              <ListPager
+                total={activity.orders.length}
+                shown={history.visible.length}
+                page={history.current}
+                pageCount={history.pageCount}
+                pageSize={pageSize}
+                onPage={setPage}
+                onPageSize={setPageSize}
+              />
+            ) : null}
             <ReportFooter />
           </ReportCard>
           <ReportCard title="Order history by retailer">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr>
-                    <th className="py-2 pr-3 text-xs font-medium uppercase tracking-wide text-ink3">
-                      Retailer
-                    </th>
+                  <tr className={headRowClass}>
+                    <th className={headCellClass}>Retailer</th>
                     {activity.months.map((month) => (
-                      <th
-                        key={month}
-                        className="py-2 pr-3 text-xs font-medium uppercase tracking-wide text-ink3"
-                      >
+                      <th key={month} className={headCellClass}>
                         {month}
                       </th>
                     ))}
@@ -326,7 +379,9 @@ function ReportCard({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <section className="rounded-xl border border-line bg-white p-4">
+    <section
+      className={`rounded-xl border p-4 ${title === 'Order activity' ? BLUE_CARD : title === 'Order history by retailer' ? NAVY_CARD : TEAL_CARD}`}
+    >
       <h2 className="text-md font-semibold text-ink">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>

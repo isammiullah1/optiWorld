@@ -14,6 +14,8 @@ import {
 } from '@optiworld/shared';
 import { z } from 'zod';
 
+import { shopApiPath } from '@/lib/shop-scope';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const StatsResponseSchema = z.object({ success: z.literal(true), data: DashboardStatsSchema });
@@ -73,7 +75,7 @@ export async function loadRetailerInvoice(
 }
 
 async function getJson<T>(path: string, accessToken: string, schema: z.ZodType<T>): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
   const payload: unknown = await response.json();

@@ -13,6 +13,8 @@ import {
 } from '@optiworld/shared';
 import { z } from 'zod';
 
+import { shopApiPath } from '@/lib/shop-scope';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const SalesResponseSchema = z.object({ success: z.literal(true), data: SalesReportSchema });
@@ -101,7 +103,7 @@ export async function downloadReport(
   format: 'xlsx' | 'pdf',
   quietDays?: number,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/v1/retailer/reports/export`, {
+  const response = await fetch(`${API_BASE}${shopApiPath('/api/v1/retailer/reports/export')}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -130,7 +132,7 @@ async function sendJson(
   method: 'POST' | 'DELETE',
   body?: unknown,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     method,
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -145,7 +147,7 @@ async function sendJson(
 }
 
 async function getJson<T>(path: string, accessToken: string, schema: z.ZodType<T>): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
   const payload: unknown = await response.json().catch(() => null);

@@ -16,6 +16,7 @@ import { createOrderChatRouter } from './routes/order-chat.routes.js';
 import { createRetailerRouter } from './routes/retailer.routes.js';
 import { createSyncRouter } from './routes/sync.routes.js';
 import { createWhatsAppRouter } from './routes/whatsapp.routes.js';
+import { createWholesalerCounterRouter } from './routes/wholesaler-counter.routes.js';
 import { createWholesalerRouter } from './routes/wholesaler.routes.js';
 import type { Mailer } from './services/mailer.js';
 
@@ -49,6 +50,7 @@ export function createApp(options?: { mailer?: Mailer }): Express {
   app.use('/api/v1/lab-jobs', createLabJobsRouter());
   app.use('/api/v1/lab', createLabRouter());
   app.use('/api/v1/orders', createOrderChatRouter());
+  app.use('/api/v1/wholesaler/counter', createWholesalerCounterRouter());
   app.use('/api/v1/wholesaler', createWholesalerRouter());
   app.use(errorMiddleware);
 

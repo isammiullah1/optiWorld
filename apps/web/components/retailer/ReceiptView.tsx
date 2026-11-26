@@ -1,7 +1,10 @@
 'use client';
 
 import type { PosReceipt } from '@optiworld/shared';
+import { Printer } from 'lucide-react';
 import Link from 'next/link';
+
+import { shopPagePath } from '@/lib/shop-scope';
 
 import { WhatsAppMark } from '@/components/WhatsAppMark';
 import { BillSettlement } from './BillSettlement';
@@ -147,20 +150,21 @@ export function ReceiptView({
           type="button"
           onClick={onWhatsApp}
           disabled={pending || sending}
-          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#128C7E] text-sm font-medium text-white disabled:opacity-50"
+          className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-lg bg-[#128C7E] px-3 py-2 text-sm font-medium leading-tight text-white disabled:opacity-50"
         >
-          <WhatsAppMark size={16} />
-          {sending ? 'Sending…' : 'Send via WhatsApp'}
+          <WhatsAppMark size={18} className="shrink-0 overflow-hidden rounded-full" />
+          <span className="min-w-0 text-balance">{sending ? 'Sending…' : 'Send via WhatsApp'}</span>
         </button>
         <button
           type="button"
           onClick={onPrint}
-          className="min-h-[44px] rounded-lg border border-line text-sm text-ink2"
+          className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-lg border border-line px-3 text-sm text-ink2"
         >
+          <Printer size={18} className="shrink-0" aria-hidden="true" />
           Print
         </button>
         <Link
-          href="/retailer/billing/new"
+          href={shopPagePath('/retailer/billing/new')}
           className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-action text-sm font-medium text-white"
         >
           New Invoice

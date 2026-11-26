@@ -23,6 +23,8 @@ import {
 } from '@optiworld/shared';
 import { z } from 'zod';
 
+import { shopApiPath } from '@/lib/shop-scope';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const ListResponseSchema = z.object({
@@ -95,10 +97,13 @@ export async function createCustomerRecord(
 }
 
 export async function deleteCustomerRecord(accessToken: string, customerId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/v1/retailer/customers/${customerId}`, {
-    method: 'DELETE',
-    headers: { authorization: `Bearer ${accessToken}` },
-  });
+  const response = await fetch(
+    `${API_BASE}${shopApiPath(`/api/v1/retailer/customers/${customerId}`)}`,
+    {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${accessToken}` },
+    },
+  );
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(readMessage(payload));
@@ -203,7 +208,7 @@ export async function recordCustomerPayment(
 }
 
 async function getJson<T>(path: string, accessToken: string, schema: z.ZodType<T>): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
   return read(response, schema);
@@ -216,7 +221,7 @@ async function sendJson<T>(
   body: unknown,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${shopApiPath(path)}`, {
     method,
     headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),

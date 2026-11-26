@@ -26,6 +26,7 @@ import { useEffect, useState } from 'react';
 
 import { CategoryTag, categoryLook } from './category-mark';
 import { formatRupee } from './dashboard-format';
+import { shopPagePath, isShopOwnerRole } from '@/lib/shop-scope';
 import { InventoryDrawer } from './InventoryDrawer';
 import {
   createInventoryBatch,
@@ -74,7 +75,7 @@ const EMPTY_FILTERS: Filters = {
 export function InventoryList(): React.ReactElement {
   const { data: session } = useSession();
   const token = session?.accessToken;
-  const showCost = session?.user.role === 'OWNER';
+  const showCost = isShopOwnerRole(session?.user.role);
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
@@ -83,6 +84,7 @@ export function InventoryList(): React.ReactElement {
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryRules, setCategoryRules] = useState<InventoryCategoryRule[]>([]);
   const [total, setTotal] = useState(0);
+  const [stockOnHand, setStockOnHand] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -121,6 +123,7 @@ export function InventoryList(): React.ReactElement {
         setCategories(result.categories);
         setCategoryRules(listed.categoryRules);
         setTotal(listed.total);
+        setStockOnHand(applied.category ? listed.stockOnHand : null);
         setLowStockNotice(showFullStock && listed.total > 0);
         setError(null);
       })
@@ -344,6 +347,7 @@ export function InventoryList(): React.ReactElement {
         <TagRow
           applied={applied}
           categories={categories}
+          stockOnHand={applied.category && !loading ? stockOnHand : null}
           moreOpen={moreOpen}
           onApply={applyTags}
           onMore={() => setMoreOpen(true)}
@@ -604,12 +608,12 @@ function InventoryRow({
     <>
       <tr className="border-b border-line last:border-0 hover:bg-canvas">
         <td className="px-3 py-3 text-sm font-semibold">
-          <Link href={`/retailer/inventory/${row.id}`} className="text-action">
+          <Link href={shopPagePath(`/retailer/inventory/${row.id}`)} className="text-action">
             {row.priceCode}
           </Link>
         </td>
         <td className="px-3 py-3 text-sm font-medium">
-          <Link href={`/retailer/inventory/${row.id}`} className="text-ink">
+          <Link href={shopPagePath(`/retailer/inventory/${row.id}`)} className="text-ink">
             {row.productName}
           </Link>
         </td>
@@ -651,7 +655,7 @@ function InventoryRow({
         <td className="px-3 py-3">
           <div className="flex flex-wrap items-center gap-1">
             <Link
-              href={`/retailer/inventory/${row.id}`}
+              href={shopPagePath(`/retailer/inventory/${row.id}`)}
               className="inline-flex min-h-11 items-center gap-1 rounded-lg px-1 text-xs font-medium text-action"
             >
               <Eye size={14} aria-hidden="true" />
@@ -872,6 +876,7 @@ type TagChip = {
 function TagRow({
   applied,
   categories,
+  stockOnHand,
   moreOpen,
   onApply,
   onMore,
@@ -879,6 +884,7 @@ function TagRow({
 }: {
   applied: Filters;
   categories: readonly string[];
+  stockOnHand: number | null;
   moreOpen: boolean;
   onApply: (
     patch: Partial<
@@ -1002,6 +1008,12 @@ function TagRow({
             </Pill>
           );
         })}
+        {applied.category && stockOnHand !== null ? (
+          <p className="inline-flex h-9 items-center gap-1.5 rounded-full border border-teal bg-teal-soft px-3 text-sm text-teal">
+            <span className="font-semibold">{formatCount(stockOnHand)}</span>
+            {applied.category} in stock
+          </p>
+        ) : null}
         {overflow.length > 0 ? (
           <Pill
             selected={moreSelected}
@@ -1090,6 +1102,10 @@ function Pill({
       {children}
     </button>
   );
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
 }
 
 const inputClass =

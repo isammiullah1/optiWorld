@@ -1,12 +1,20 @@
 'use client';
 
 import type { OrderStatus, WholesalerOrderRow } from '@optiworld/shared';
+import { Check, Eye } from 'lucide-react';
 import { useSession } from 'next-auth/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { formatRelativeTime } from '@/components/retailer/dashboard-format';
 
 import { WHOLESALER_ORDERS_CHANGED, confirmWholesalerOrder } from './wholesaler-api';
+import {
+  headCellClass,
+  headRowClass,
+  ListPager,
+  pageWindow,
+  type PageSize,
+} from './wholesaler-surface';
 
 type OrderTableProps = {
   orders: readonly WholesalerOrderRow[];
@@ -14,6 +22,14 @@ type OrderTableProps = {
 };
 
 export function OrderTable({ orders, onChanged }: OrderTableProps): React.ReactElement {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(10);
+  const windowed = pageWindow(orders, page, pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [orders, pageSize]);
+
   if (orders.length === 0) {
     return (
       <div className="rounded-xl border border-line bg-white p-6 text-center">
@@ -24,26 +40,34 @@ export function OrderTable({ orders, onChanged }: OrderTableProps): React.ReactE
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-line bg-white">
-      <table className="w-full min-w-[720px] border-collapse text-left">
-        <thead>
-          <tr className="border-b border-line">
-            {['Order', 'Retailer', 'Items', 'Status', 'Submitted', 'Action'].map((heading) => (
-              <th
-                key={heading}
-                className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink3"
-              >
-                {heading}
-              </th>
+    <div className="overflow-hidden rounded-xl border border-action-soft bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-left">
+          <thead>
+            <tr className={headRowClass}>
+              {['Order', 'Retailer', 'Items', 'Status', 'Submitted', 'Action'].map((heading) => (
+                <th key={heading} className={headCellClass}>
+                  {heading}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {windowed.visible.map((order) => (
+              <OrderRow key={order.id} order={order} onChanged={onChanged} />
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {orders.map((order) => (
-            <OrderRow key={order.id} order={order} onChanged={onChanged} />
-          ))}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
+      <ListPager
+        total={orders.length}
+        shown={windowed.visible.length}
+        page={windowed.current}
+        pageCount={windowed.pageCount}
+        pageSize={pageSize}
+        onPage={setPage}
+        onPageSize={setPageSize}
+      />
     </div>
   );
 }
@@ -79,7 +103,7 @@ function OrderRow({
 
   return (
     <tr className="border-b border-line last:border-0 hover:bg-canvas">
-      <td className="px-3 py-2 text-xs font-medium text-ink">
+      <td className="px-3 py-2 text-sm font-medium text-ink">
         <span className="inline-flex items-center gap-2">
           {order.hasUnread ? (
             <span
@@ -101,38 +125,34 @@ function OrderRow({
           </span>
         ) : null}
       </td>
-      <td className="px-3 py-2 text-xs text-ink">{order.retailerName}</td>
-      <td className="px-3 py-2 text-xs text-ink2">{order.itemCount}</td>
+      <td className="px-3 py-2 text-sm text-ink">{order.retailerName}</td>
+      <td className="px-3 py-2 text-sm text-ink2">{order.itemCount}</td>
       <td className="px-3 py-2">
         <StatusPill status={order.status} />
       </td>
-      <td className="px-3 py-2 text-xs text-ink2">{formatRelativeTime(order.createdAt)}</td>
+      <td className="px-3 py-2 text-sm text-ink2">{formatRelativeTime(order.createdAt)}</td>
       <td className="px-3 py-2">
-        {order.status === 'PENDING' ? (
+        {order.status === 'PENDING' && order.settlement === null ? (
           <button
             type="button"
-            className="min-h-11 rounded-lg bg-action px-3 text-xs font-medium text-white disabled:opacity-60"
+            className="inline-flex h-8 items-center gap-1 rounded-lg bg-action px-2 text-xs font-medium text-white disabled:opacity-60"
             disabled={busy}
             onClick={() => void confirm()}
           >
+            <Check size={14} aria-hidden="true" />
             {busy ? 'Confirming' : 'Confirm'}
           </button>
-        ) : (
-          <a
-            href={`/wholesaler/orders/${order.id}`}
-            className="inline-flex min-h-11 items-center text-xs font-medium text-action"
-          >
-            View
-          </a>
-        )}
-        {order.status === 'PENDING' ? (
-          <a
-            href={`/wholesaler/orders/${order.id}`}
-            className="ml-3 inline-flex min-h-11 items-center text-xs text-ink2"
-          >
-            View
-          </a>
         ) : null}
+        {order.status === 'PENDING' && order.settlement !== null ? (
+          <span className="text-xs text-ink3">Retailer confirms</span>
+        ) : null}
+        <a
+          href={`/wholesaler/orders/${order.id}`}
+          className="ml-2 inline-flex h-8 items-center gap-1 rounded-lg px-1 text-xs font-medium text-action"
+        >
+          <Eye size={14} aria-hidden="true" />
+          View
+        </a>
       </td>
     </tr>
   );
